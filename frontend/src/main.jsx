@@ -17,6 +17,10 @@ import Settings from './pages/Settings.jsx';
 import Sso from './pages/Sso.jsx';
 import OAuthConsent from './pages/OAuthConsent.jsx';
 import Signup from './pages/Signup.jsx';
+import ForgotPassword from './pages/ForgotPassword.jsx';
+import ResetPassword from './pages/ResetPassword.jsx';
+import Reports from './pages/Reports.jsx';
+import PublicReport from './pages/PublicReport.jsx';
 
 const Private = ({ children }) => (getToken() ? children : <Navigate to="/login" replace />);
 
@@ -25,6 +29,9 @@ createRoot(document.getElementById('root')).render(
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/r/:token" element={<PublicReport />} />
       <Route path="/sso" element={<Sso />} />
       <Route path="/oauth/consent" element={<OAuthConsent />} />
       <Route element={<Private><Layout /></Private>}>
@@ -36,6 +43,7 @@ createRoot(document.getElementById('root')).render(
         <Route path="/orgs/:orgId/log" element={<ActionsLog />} />
         <Route path="/orgs/:orgId/wallet" element={<Wallet />} />
         <Route path="/orgs/:orgId/settings" element={<Settings />} />
+        <Route path="/orgs/:orgId/reports" element={<Reports />} />
       </Route>
     </Routes>
   </BrowserRouter>,

@@ -184,3 +184,18 @@ JSON: {"headlines": [10 strings <=30 chars], "descriptions": [4 strings <=90 cha
   });
   return { headlines: out.headlines || [], descriptions: out.descriptions || [], keywords: out.keywords || [] };
 }
+
+
+/** Screen 5: weak offer -> 3 stronger versions (free / discount / deadline), policy-checked. */
+export async function strengthenOffer({ sector, offer, businessName }) {
+  const t = getTemplate(sector);
+  if (!aiAvailable()) return { offers: t.offerIdeas.slice(0, 3) };
+  const out = await askJson({
+    system: `You improve offers for Facebook ads of small Indian local businesses. A strong offer has something free, a discount, or a deadline, in one short line. ${policyBrief(t)}`,
+    prompt: `Business: ${businessName || t.label} (${t.label}). Current offer: "${offer || '(none)'}".
+Ideas that work in this sector: ${t.offerIdeas.join(' | ')}
+Write 3 stronger one-line offers (max 70 characters each) the business could realistically give. JSON: {"offers": [3 strings]}`,
+  });
+  const ok = clean(out.offers, t).map((x) => x.slice(0, 90));
+  return { offers: ok.length ? ok.slice(0, 3) : t.offerIdeas.slice(0, 3) };
+}

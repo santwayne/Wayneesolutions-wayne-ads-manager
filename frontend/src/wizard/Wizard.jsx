@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api, inr } from '../api.js';
 import MapPicker from './MapPicker.jsx';
 import GoogleCard from './GoogleCard.jsx';
+import MediaPicker from './MediaPicker.jsx';
 
 const STEPS = ['Kya chahiye', 'Business type', 'Kahan aur kisko', 'Budget', 'Offer aur ad', 'Lead form', 'Review'];
 const GOAL_HELP = { lead_form: 'Log form mein naam aur number bharenge', whatsapp: 'Log seedha aapko WhatsApp karenge', call: 'Log ad se seedha call karenge', website: 'Log website pe book/kharid karenge', store_visit: 'Aas paas ke log dukaan pe aayenge' };
@@ -58,19 +59,14 @@ export default function Wizard() {
     setBusy('copy'); setErr('');
     try { setCopy(await api('POST', `/orgs/${orgId}/drafts/${draft.id}/copy`)); } catch (x) { setErr(x.message); } finally { setBusy(''); }
   };
+  const [offerIdeas, setOfferIdeas] = useState(null);
+  const improveOffer = async () => {
+    setBusy('offer'); setErr('');
+    try { setOfferIdeas((await api('POST', `/orgs/${orgId}/drafts/${draft.id}/offer-ideas`)).offers); } catch (x) { setErr(x.message); } finally { setBusy(''); }
+  };
   const toggleText = (key, t, max) => {
     const cur = d[key] || [];
     patch({ [key]: cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t].slice(-max) });
-  };
-  const upload = async (files) => {
-    setBusy('media'); setErr('');
-    try {
-      for (const f of files) {
-        const r = await api('POST', `/orgs/${orgId}/drafts/${draft.id}/media`, f, { raw: true, contentType: f.type });
-        setDraft((x) => ({ ...x, data: { ...x.data, media: r.media } }));
-      }
-      setV(await api('GET', `/orgs/${orgId}/drafts/${draft.id}/validate?reach=0`));
-    } catch (x) { setErr(x.message); } finally { setBusy(''); }
   };
   const create = async () => {
     setBusy('create'); setErr('');
@@ -151,7 +147,8 @@ export default function Wizard() {
         <>
           <label>Offer 1 line mein</label>
           <input defaultValue={d.offer || ''} placeholder={tpl?.offerIdeas?.[0]} onBlur={(e) => patch({ offer: e.target.value })} />
-          <div className="muted" style={{ marginTop: 6 }}>Ideas: {tpl?.offerIdeas?.map((o) => <a key={o} href="#" onClick={(e) => { e.preventDefault(); patch({ offer: o }); }} style={{ marginRight: 10 }}>{o}</a>)}</div>
+          <div className="muted" style={{ marginTop: 6 }}>Ideas: {(offerIdeas || tpl?.offerIdeas || []).map((o) => <a key={o} href="#" onClick={(e) => { e.preventDefault(); patch({ offer: o }); }} style={{ marginRight: 10 }}>{o}</a>)}
+            <button type="button" style={{ marginLeft: 8 }} disabled={busy === 'offer'} onClick={improveOffer}>{busy === 'offer' ? 'Soch raha hai…' : '✨ AI se offer behtar karo'}</button></div>
           <div className="row" style={{ marginTop: 10 }}>
             <label style={{ margin: 0 }}>Bhasha</label>
             <select value={d.language || 'hinglish'} onChange={(e) => patch({ language: e.target.value })} style={{ width: 160 }}>
@@ -165,11 +162,8 @@ export default function Wizard() {
               <div><h2>Headline</h2>{copy.headlines.map((t) => <button key={t} className={`choice ${sel('headlines').includes(t) ? 'on' : ''}`} style={{ width: '100%', marginBottom: 8 }} onClick={() => toggleText('headlines', t, 3)}>{t}</button>)}</div>
             </div>
           )}
-          <h2>Photo / video (3–5)</h2>
-          <input type="file" accept="image/*" multiple onChange={(e) => upload([...e.target.files])} disabled={busy === 'media'} />
-          {busy === 'media' && <p className="muted">Upload + quality check ho raha hai…</p>}
-          <div className="thumbs" style={{ marginTop: 10 }}>{(d.media || []).map((m, i) => <img key={i} src={m.url || m.thumbnailUrl} alt={`creative ${i + 1}`} />)}</div>
-          <Checklist checks={stepChecks(['no_offer', 'weak_offer', 'no_text', 'no_headline', 'blocked_phrase', 'personal_attribute', 'before_after', 'superlative', 'no_media', 'few_media', 'aspect', 'blurry', 'text_heavy', 'low_res', 'video_long'])} onFix={patch} />
+          <MediaPicker orgId={orgId} draft={draft} onMedia={async (media) => { setDraft((x) => ({ ...x, data: { ...x.data, media } })); setV(await api('GET', `/orgs/${orgId}/drafts/${draft.id}/validate?reach=0`)); }} />
+          <Checklist checks={stepChecks(['no_offer', 'weak_offer', 'no_text', 'no_headline', 'blocked_phrase', 'personal_attribute', 'before_after', 'superlative', 'no_media', 'few_media', 'aspect', 'blurry', 'text_heavy', 'low_res', 'video_long', 'video_short', 'video_thumb'])} onFix={patch} />
         </>
       )}
 
@@ -193,7 +187,7 @@ export default function Wizard() {
       {name === 'Review' && (
         <div className="grid g2">
           <div className="preview">
-            {d.media?.[0]?.url && <img src={d.media[0].url} alt="preview" />}
+            {(d.media?.[0]?.url || d.media?.[0]?.thumbnailUrl) && <img src={d.media[0].type === 'video' ? d.media[0].thumbnailUrl : d.media[0].url} alt="preview" />}
             <div className="txt">{d.primaryTexts?.[0] || 'Ad text chuno'}</div>
             <div className="bar"><b>{d.headlines?.[0]}</b><span className="btn">{d.goal === 'whatsapp' ? 'WhatsApp' : d.goal === 'call' ? 'Call now' : 'Sign up'}</span></div>
           </div>

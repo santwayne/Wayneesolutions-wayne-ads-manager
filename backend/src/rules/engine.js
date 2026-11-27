@@ -19,6 +19,20 @@ export const DEFAULTS = {
 
 export const LEARNING = { minDays: 3, maxDays: 7, results: 50 };
 
+/**
+ * Creative fatigue score 0–100 for creatives.fatigue_score (higher = more tired).
+ * Half from frequency (3+ = full), half from the CTR drop over the last 7 days (30%+ = full).
+ */
+export function fatigueScore(days = []) {
+  const d7 = [...days].sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-7);
+  if (d7.length < 3) return 0;
+  const freq = Math.max(...d7.map((r) => Number(r.frequency) || 0));
+  const ctr = (rows) => { const imp = rows.reduce((s, r) => s + (Number(r.impressions) || 0), 0); return imp ? rows.reduce((s, r) => s + (Number(r.clicks) || 0), 0) / imp : 0; };
+  const first = ctr(d7.slice(0, 3)); const last = ctr(d7.slice(-3));
+  const drop = first > 0 ? Math.max(0, (first - last) / first) : 0;
+  return Math.round(Math.min(freq / 3, 1) * 50 + Math.min(drop / 0.3, 1) * 50);
+}
+
 export function isInLearning({ learningStage, daysSinceLaunch, results7d }) {
   if (learningStage === 'SUCCESS') return false;
   if (learningStage === 'LEARNING') return true;

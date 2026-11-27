@@ -80,7 +80,7 @@ export function demoGraph() {
     if (path.endsWith('/delivery_estimate')) return { data: [{ estimate_mau_lower_bound: 90000, estimate_mau_upper_bound: 140000 }] };
     return method === 'GET' ? { data: [] } : { success: true };
   };
-  return { get: (p, q) => ok('GET', p, q), post: (p, q) => ok('POST', p, q), del: (p, q) => ok('DELETE', p, q), getAll: async () => [], batch: async () => [], asyncInsights: async () => [] };
+  return { upload: async (p, f) => { assertWriteAllowed('POST', p, f); return { id: String(n++) }; }, get: (p, q) => ok('GET', p, q), post: (p, q) => ok('POST', p, q), del: (p, q) => ok('DELETE', p, q), getAll: async () => [], batch: async () => [], asyncInsights: async () => [] };
 }
 export const isDemoAccount = (a) => String(a?.meta_account_id || '').startsWith('act_demo');
 

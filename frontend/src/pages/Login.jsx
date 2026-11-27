@@ -18,7 +18,7 @@ export default function Login() {
         <label>Password</label><input value={password} onChange={(e) => setPassword(e.target.value)} type="password" required />
         {err && <div className="err">{err}</div>}
         <button className="primary" style={{ width: '100%', marginTop: 16 }}>Login</button>
-        <p className="muted">Naya business? <Link to="/signup">Account banao</Link></p>
+        <p className="muted"><Link to="/forgot-password">Password bhool gaye?</Link> · Naya business? <Link to="/signup">Account banao</Link></p>
       </form>
     </div>
   );

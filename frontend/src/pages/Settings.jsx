@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api.js';
 import Connections from '../components/Connections.jsx';
+import Team from '../components/Team.jsx';
 
 const RULE_LABEL = { money_burn: 'Paisa jal raha', expensive_ad: 'Mehnga ad', winner: 'Winner (budget +20%)', creative_fatigue: 'Creative thak gaya', delivery_stopped: 'Delivery ruk gayi', ad_rejected: 'Ad reject', tracking_broken: 'Tracking toota', lead_followup: 'Lead follow-up', out_of_area: 'Out of area %', wallet_low: 'Wallet low' };
 
@@ -56,13 +57,14 @@ export default function Settings() {
           )}
         </div>
       </div>
+      <Team orgId={orgId} owner={owner} />
       <Connections orgId={orgId} owner={owner} templates={tpls} onChange={load} />
       <h2>Rules (thresholds)</h2>
       <table><thead><tr><th>Rule</th><th>On</th><th>Thresholds</th><th>Last fired</th></tr></thead>
         <tbody>{rules.map((r) => (
           <tr key={r.ruleType}><td>{RULE_LABEL[r.ruleType]}</td>
             <td><input type="checkbox" style={{ width: 'auto' }} disabled={!owner} checked={r.enabled} onChange={(e) => saveRule(r, e.target.checked, Object.fromEntries(Object.entries(r.threshold).filter(([k]) => k !== 'enabled')))} /></td>
-            <td className="row" style={{ flexWrap: 'wrap' }}>{Object.entries(r.threshold).filter(([k]) => k !== 'enabled').map(([k, v]) => (
+            <td className="row" style={{ flexWrap: 'wrap' }}>{r.templateDefaults && <span className="pill grey" title="Business type ke hisaab se default">template</span>}{Object.entries(r.threshold).filter(([k]) => k !== 'enabled').map(([k, v]) => (
               <span key={k} className="row" style={{ gap: 4 }}><span className="muted">{k}</span><input type="number" style={{ width: 80 }} disabled={!owner} defaultValue={v}
                 onBlur={(e) => saveRule(r, r.enabled, { ...Object.fromEntries(Object.entries(r.threshold).filter(([x]) => x !== 'enabled')), [k]: Number(e.target.value) })} /></span>))}</td>
             <td className="muted">{r.lastFired ? new Date(r.lastFired).toLocaleString('en-IN') : '—'}</td></tr>))}</tbody></table>

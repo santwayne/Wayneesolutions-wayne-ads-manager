@@ -134,7 +134,7 @@ export function buildCreative(draft, goal, { media, primaryText, headline, pageI
   if (media.type === 'video') {
     story.video_data = {
       video_id: media.videoId,
-      image_url: media.thumbnailUrl,
+      ...(media.thumbnailHash ? { image_hash: media.thumbnailHash } : { image_url: media.thumbnailUrl }),
       message: primaryText,
       title: headline,
       call_to_action: { ...cta, value: { ...(cta.value || {}), ...(draft.goal === 'website' || draft.goal === 'store_visit' ? { link } : {}) } },

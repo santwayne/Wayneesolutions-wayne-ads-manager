@@ -21,6 +21,7 @@ export function checkMedia(media = []) {
     const a = aspectLabel(m.width, m.height);
     if (!a) issues.push({ code: 'aspect', level: 'warn', index: i, message: `Creative ${n}: size 1:1, 4:5 ya 9:16 nahi hai`, fix: 'Crop karo (4:5 feed ke liye best)' });
     if (m.type === 'video') {
+      if (!m.thumbnailHash && !m.thumbnailUrl) issues.push({ code: 'video_thumb', level: 'block', index: i, message: `Video ${n} ka thumbnail (cover photo) nahi hai`, fix: 'Video dobara chuno ya cover photo daalo' });
       if (m.durationSec > 60) issues.push({ code: 'video_long', level: 'warn', index: i, message: `Video ${n}: 60 sec se lamba — 15–30 sec best`, fix: 'Chhota edit karo' });
       if (m.durationSec && m.durationSec < 5) issues.push({ code: 'video_short', level: 'warn', index: i, message: `Video ${n}: bahut chhota`, fix: '6–30 sec ka video daalo' });
     }
