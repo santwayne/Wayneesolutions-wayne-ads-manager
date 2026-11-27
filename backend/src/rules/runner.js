@@ -2,7 +2,8 @@ import { config } from '../config.js';
 import { query } from '../lib/db.js';
 import { logger } from '../lib/logger.js';
 import { conflict, notFound } from '../lib/errors.js';
-import { evaluate } from './engine.js';
+import { evaluate, fatigueScore } from './engine.js';
+import { getTemplate } from '../wizard/templates/index.js';
 import { changeBudget, setStatus, logAction } from '../actions/service.js';
 import { notifyOwner } from '../notify/whatsapp.js';
 import { rewriteRejected, generateCopy } from '../ai/service.js';
@@ -72,9 +73,21 @@ export async function buildSnapshot(adAccount, now = new Date()) {
   };
 }
 
-async function overridesFor(orgId) {
+/** engine DEFAULTS < sector template rules < the owner's own settings (rules table). */
+export async function overridesFor(orgId, sector) {
+  const tpl = getTemplate(sector).rules || {};
   const { rows } = await query('SELECT rule_type, enabled, threshold FROM rules WHERE org_id = $1', [orgId]);
-  return Object.fromEntries(rows.map((r) => [r.rule_type, { ...r.threshold, enabled: r.enabled }]));
+  const own = Object.fromEntries(rows.map((r) => [r.rule_type, { ...r.threshold, enabled: r.enabled }]));
+  const out = {};
+  for (const k of new Set([...Object.keys(tpl), ...Object.keys(own)])) out[k] = { ...(tpl[k] || {}), ...(own[k] || {}) };
+  return out;
+}
+
+async function updateFatigue(snapshot) {
+  for (const ad of snapshot.ads) {
+    const score = fatigueScore(ad.days);
+    await query('UPDATE creatives c SET fatigue_score = $2 FROM ads a WHERE a.meta_id = $1 AND a.creative_id = c.id', [ad.metaId, score]);
+  }
 }
 
 async function autoActionsToday(orgId) {
@@ -102,7 +115,8 @@ async function enrich(f, adAccount) {
 /** Hourly. Returns created alerts. */
 export async function runRulesForAccount(adAccount, { only } = {}) {
   const snapshot = await buildSnapshot(adAccount);
-  let findings = evaluate(snapshot, await overridesFor(adAccount.org_id));
+  await updateFatigue(snapshot);
+  let findings = evaluate(snapshot, await overridesFor(adAccount.org_id, adAccount.sector_template));
   if (only) findings = findings.filter((f) => only.includes(f.ruleType));
   const org = snapshot.org;
   const created = [];

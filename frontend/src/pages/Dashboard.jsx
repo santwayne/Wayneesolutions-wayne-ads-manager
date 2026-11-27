@@ -65,6 +65,11 @@ export default function Dashboard() {
             <>
               <div className="muted" style={{ marginTop: 12 }}>Is hafte ke 3 kaam (AI)</div>
               <ol>{d.recommendations.payload.actions.map((a, i) => <li key={i}><b>{a.title}</b> — <span className="muted">{a.why}</span></li>)}</ol>
+              {d.recommendations.payload.copies?.length > 0 && (
+                <details><summary className="muted" style={{ cursor: 'pointer' }}>AI ke {d.recommendations.payload.copies.length} naye ad text</summary>
+                  {d.recommendations.payload.copies.map((c, i) => (
+                    <div key={i} className="check"><div style={{ flex: 1, whiteSpace: 'pre-wrap' }}>{c}</div><button onClick={() => navigator.clipboard?.writeText(c)}>Copy</button></div>))}
+                </details>)}
             </>
           )}
         </div>

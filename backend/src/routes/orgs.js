@@ -2,7 +2,10 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { query, tx } from '../lib/db.js';
-import { forbidden } from '../lib/errors.js';
+import { forbidden, conflict, badRequest } from '../lib/errors.js';
+import crypto from 'node:crypto';
+import { config } from '../config.js';
+import { issueUserToken, resetLink, deliverLink } from './password.js';
 import { requireOrg } from '../lib/auth.js';
 import { ah, parse, actorOf } from './util.js';
 import { logAction } from '../actions/service.js';
@@ -59,14 +62,65 @@ orgs.patch('/orgs/:orgId/settings', requireOrg('owner'), ah(async (req, res) => 
   res.json(after);
 }));
 
+// ---- Team: list, invite, change role, remove (owner only for changes) ----
+orgs.get('/orgs/:orgId/members', requireOrg('viewer'), ah(async (req, res) => {
+  const { rows } = await query(
+    `SELECT u.id, u.name, u.email, m.role, u.password_set AS "passwordSet", m.created_at AS "addedAt"
+     FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.org_id = $1 ORDER BY (m.role = 'owner') DESC, u.name`, [req.org.id]);
+  res.json(rows);
+}));
+
 orgs.post('/orgs/:orgId/members', requireOrg('owner'), ah(async (req, res) => {
-  const b = parse(z.object({ email: z.string().email(), name: z.string().min(1), role: z.enum(['owner', 'manager', 'viewer']), password: z.string().min(8).optional() }), req.body);
-  const { rows: [u] } = await query(
-    `INSERT INTO users (email, name, password_hash) VALUES ($1,$2,$3)
-     ON CONFLICT (email) DO UPDATE SET name = users.name RETURNING id`,
-    [b.email.toLowerCase(), b.name, await bcrypt.hash(b.password || crypto.randomUUID(), 10)]);
-  await query('INSERT INTO memberships (user_id, org_id, role) VALUES ($1,$2,$3) ON CONFLICT (user_id, org_id) DO UPDATE SET role = EXCLUDED.role', [u.id, req.org.id, b.role]);
-  res.status(201).json({ userId: u.id, role: b.role });
+  const b = parse(z.object({ email: z.string().email(), name: z.string().min(1), role: z.enum(['owner', 'manager', 'viewer']), phone: z.string().regex(/^\d{10,15}$/).optional() }), req.body);
+  const out = await tx(async (c) => {
+    const { rows: [existing] } = await c.query('SELECT * FROM users WHERE lower(email) = lower($1)', [b.email]);
+    let user = existing;
+    if (!user) {
+      ({ rows: [user] } = await c.query(
+        'INSERT INTO users (email, name, password_hash, phone, password_set) VALUES (lower($1),$2,$3,$4,false) RETURNING *',
+        [b.email, b.name, await bcrypt.hash(crypto.randomUUID(), 10), b.phone || null]));
+    }
+    const { rows: [m] } = await c.query('SELECT role FROM memberships WHERE user_id = $1 AND org_id = $2', [user.id, req.org.id]);
+    if (m) throw conflict('Ye insaan pehle se team mein hai');
+    await c.query('INSERT INTO memberships (user_id, org_id, role, invited_by) VALUES ($1,$2,$3,$4)', [user.id, req.org.id, b.role, req.user.id]);
+    // New login -> set-password link; existing login -> just a heads-up with the app link.
+    const token = user.password_set ? null : await issueUserToken(c, { userId: user.id, purpose: 'invite', orgId: req.org.id });
+    return { user, token };
+  });
+  const { rows: [org] } = await query('SELECT name FROM orgs WHERE id = $1', [req.org.id]);
+  const link = out.token ? resetLink(out.token, 'invite') : `${config.appUrl}/orgs/${req.org.id}`;
+  const channel = await deliverLink(out.user, {
+    subject: `Wayne Ads — ${org.name} team mein aapka invite`,
+    line: out.token ? `Aapko ${org.name} ke Wayne Ads mein ${b.role} banaya gaya hai. Password set karke shuru karein (7 din tak valid):` : `Aapko ${org.name} ke Wayne Ads mein ${b.role} access mila hai. Login karke dekhiye:`,
+    link,
+  });
+  await logAction({ orgId: req.org.id, ...actorOf(req), what: 'member_add', after: { email: b.email.toLowerCase(), role: b.role } });
+  // If nothing could deliver it, the owner gets the link to share by hand.
+  res.status(201).json({ userId: out.user.id, role: b.role, delivered: channel, inviteLink: channel ? undefined : link });
+}));
+
+async function ownersCount(orgId) {
+  const { rows: [r] } = await query("SELECT COUNT(*) AS n FROM memberships WHERE org_id = $1 AND role = 'owner'", [orgId]);
+  return Number(r.n);
+}
+
+orgs.patch('/orgs/:orgId/members/:userId', requireOrg('owner'), ah(async (req, res) => {
+  const { role } = parse(z.object({ role: z.enum(['owner', 'manager', 'viewer']) }), req.body);
+  const { rows: [m] } = await query('SELECT role FROM memberships WHERE user_id = $1 AND org_id = $2', [req.params.userId, req.org.id]);
+  if (!m) throw badRequest('Ye insaan team mein nahi hai');
+  if (m.role === 'owner' && role !== 'owner' && (await ownersCount(req.org.id)) <= 1) throw conflict('Kam se kam ek Owner hona zaroori hai');
+  await query('UPDATE memberships SET role = $3 WHERE user_id = $1 AND org_id = $2', [req.params.userId, req.org.id, role]);
+  await logAction({ orgId: req.org.id, ...actorOf(req), what: 'member_role', before: { userId: Number(req.params.userId), role: m.role }, after: { role } });
+  res.json({ userId: Number(req.params.userId), role });
+}));
+
+orgs.delete('/orgs/:orgId/members/:userId', requireOrg('owner'), ah(async (req, res) => {
+  const { rows: [m] } = await query('SELECT role FROM memberships WHERE user_id = $1 AND org_id = $2', [req.params.userId, req.org.id]);
+  if (!m) throw badRequest('Ye insaan team mein nahi hai');
+  if (m.role === 'owner' && (await ownersCount(req.org.id)) <= 1) throw conflict('Aakhri Owner ko hata nahi sakte');
+  await query('DELETE FROM memberships WHERE user_id = $1 AND org_id = $2', [req.params.userId, req.org.id]);
+  await logAction({ orgId: req.org.id, ...actorOf(req), what: 'member_remove', before: { userId: Number(req.params.userId), role: m.role } });
+  res.json({ removed: true });
 }));
 
 // ---- Ad accounts ----

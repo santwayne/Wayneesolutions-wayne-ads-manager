@@ -19,6 +19,8 @@ const base = {
   blockedPhrases: [],
   offerIdeas: [],
   tone: 'friendly, clear, local',
+  // Per-sector rule thresholds (layer between engine DEFAULTS and the owner's own settings).
+  rules: {},
   // Fields the WhatsApp-mode AI may fill/change. Anything else stays template default.
   aiEditableFields: ['offer', 'goal', 'radiusKm', 'ageMin', 'ageMax', 'dailyBudget', 'language', 'primaryTexts', 'headlines'],
 };
@@ -37,6 +39,8 @@ export const TEMPLATES = {
       { key: 'consult_type', label: 'Aap kis cheez ke liye consult karna chahte hain?', options: ['IVF', 'IUI', 'Fertility check-up', 'Other'] },
     ],
     healthSensitive: true,
+    // High-value leads: give an ad more room before calling it a money burn; callbacks fast.
+    rules: { money_burn: { cplMultiple: 4 }, lead_followup: { minutes: 10 } },
     blockedPhrases: [
       'guarantee', 'guaranteed', '100%', 'success rate', 'pakka result', 'sure shot',
       'kya aap infertile', 'are you infertile', 'aap baanjh', 'your infertility', 'kya aap maa nahi ban',
@@ -55,6 +59,7 @@ export const TEMPLATES = {
       { key: 'service', label: 'Aapko kya chahiye?', options: ['IELTS/PTE coaching', 'Study visa', 'Tourist visa', 'Spouse visa'] },
       { key: 'education', label: 'Aapki last education?', options: ['12th', 'Graduation', 'Post-graduation'] },
     ],
+    rules: { lead_followup: { minutes: 10 } },
     blockedPhrases: ['visa guarantee', 'guaranteed visa', '100% approval', '100% visa', 'pakka visa', 'visa pakka', 'no refusal', 'guarantee'],
   },
   restaurant: {
@@ -66,6 +71,8 @@ export const TEMPLATES = {
     minDailyBudget: 250, recommendedDailyBudget: 400, targetCpl: 60,
     defaultGoal: 'whatsapp',
     tone: 'fun, tasty, local, punchy',
+    // Cheap, fast-moving leads: creatives tire quickly, out-of-area matters less (delivery radius).
+    rules: { creative_fatigue: { frequency: 2.5 }, out_of_area: { maxPct: 25 } },
     offerIdeas: ['Flat 20% off on first order', 'Free dessert with every family meal', 'Weekend combo at special price'],
     formQuestions: [{ key: 'occasion', label: 'Kis cheez ke liye?', options: ['Dine-in', 'Home delivery', 'Party/Event booking'] }],
     qualifyingQuestion: { key: 'kab', label: 'Kab aana chahenge?', options: ['Aaj', 'Is weekend', 'Agle hafte'] },
@@ -98,6 +105,8 @@ export const TEMPLATES = {
     ...base, key: 'real_estate', label: 'Real estate', ageMin: 18, ageMax: 65, radiusKm: 25,
     minDailyBudget: 700, recommendedDailyBudget: 1200, targetCpl: 350,
     specialAdCategories: ['HOUSING'],
+    // Long sales cycle, expensive leads; wide 25 km radius makes out-of-area noisier.
+    rules: { money_burn: { cplMultiple: 4 }, expensive_ad: { overAvgPct: 75 }, out_of_area: { maxPct: 25 } },
     offerIdeas: ['Free site visit with pick & drop', 'Booking at ₹51,000 only', 'Festive offer: free modular kitchen'],
     formQuestions: [{ key: 'budget', label: 'Aapka budget?', options: ['50 lakh tak', '50 lakh - 1 crore', '1 crore se upar'] }],
     blockedPhrases: ['guaranteed returns', 'double your money', 'assured return'],

@@ -76,6 +76,10 @@ export async function uploadMedia(adAccount, item) {
     const first = Object.values(r.images || {})[0];
     return { imageHash: first?.hash, url: first?.url };
   }
+  if (item.buffer) {
+    const r = await g.upload(`${adAccount.meta_account_id}/advideos`, { name: item.name || 'Wayne video' }, { buffer: item.buffer, mimeType: item.mimeType, name: item.name });
+    return { videoId: r.id };
+  }
   const r = await g.post(`${adAccount.meta_account_id}/advideos`, { file_url: item.fileUrl, name: item.name || 'Wayne video' });
   return { videoId: r.id };
 }

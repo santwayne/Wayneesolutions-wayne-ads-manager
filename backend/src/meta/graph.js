@@ -176,7 +176,20 @@ export function createGraphClient({ token, fetchImpl = globalThis.fetch, throttl
     return getAll(`${runId}/insights`);
   }
 
+  /** Multipart upload (video files to /advideos). Same write guards as every other call. */
+  async function upload(path, fields, file) {
+    assertWriteAllowed('POST', path, fields);
+    const form = new FormData();
+    for (const [k, v] of Object.entries({ ...fields, access_token: token, appsecret_proof: appSecretProof(token) })) if (v != null) form.append(k, String(v));
+    form.append('source', new Blob([file.buffer], { type: file.mimeType || 'video/mp4' }), file.name || 'video.mp4');
+    const res = await fetchImpl(`${base}/${String(path).replace(/^\//, '')}`, { method: 'POST', body: form });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || json.error) throw new MetaApiError(json.error, res.status);
+    return json;
+  }
+
   return {
+    upload,
     get: (p, params, o) => request('GET', p, params, o),
     post: (p, params, o) => request('POST', p, params, o),
     del: (p, params, o) => request('DELETE', p, params, o),

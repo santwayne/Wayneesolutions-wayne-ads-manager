@@ -18,6 +18,8 @@ import { crmWebhooks } from './webhooks/crm.js';
 import { hub } from './hub/routes.js';
 import { billing, razorpayWebhook } from './billing/razorpay.js';
 import { signup, selfServe } from './routes/selfServe.js';
+import { password } from './routes/password.js';
+import { reports, publicReports } from './routes/reports.js';
 import { google, googleCallback } from './google/ads.js';
 import { oauthProvider, oauthConsent, MCP_SCOPES } from './mcp/oauth.js';
 import { handleMcp } from './mcp/server.js';
@@ -42,6 +44,7 @@ export function createApp() {
 
   // ---- Phase 2: Loopdesk hub (token-authenticated, no user session) ----
   app.use('/api/hub', hub);
+  app.use('/api/public', rateLimit({ windowMs: 60_000, max: 60 }), publicReports);
 
   // ---- Phase 2: MCP connector with OAuth per user ----
   const issuer = new URL(config.publicBaseUrl);
@@ -52,8 +55,8 @@ export function createApp() {
   app.get('/deletion-status', (req, res, next) => deletionStatus(req, res).catch(next));
   app.get('/meta/callback', (req, res, next) => metaLogin.handle(req, res, next));
 
-  app.use('/api/auth', rateLimit({ windowMs: 15 * 60_000, max: 50 }), auth, signup);
-  app.use('/api', requireAuth, orgs, wizard, ops, metaLogin, selfServe, billing, google, oauthConsent);
+  app.use('/api/auth', rateLimit({ windowMs: 15 * 60_000, max: 50 }), auth, signup, password);
+  app.use('/api', requireAuth, orgs, wizard, ops, metaLogin, selfServe, billing, google, oauthConsent, reports);
 
   app.use((req, res) => res.status(404).json({ error: 'not_found' }));
   // eslint-disable-next-line no-unused-vars

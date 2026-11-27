@@ -13,6 +13,7 @@ import { enqueue } from './queues.js';
 import { sendCrmStage } from '../leads/capi.js';
 import { flushHubEvents } from '../hub/events.js';
 import { syncGoogleAccount } from '../google/ads.js';
+import { sendMonthlyReport } from '../routes/reports.js';
 
 const activeAccounts = async () => (await query("SELECT * FROM ad_accounts WHERE status = 'active'")).rows;
 const businessOrgs = async (where = '') => (await query(`SELECT * FROM orgs WHERE type = 'business' ${where}`)).rows;
@@ -67,6 +68,8 @@ export const handlers = {
   reports: {
     'weekly-all': async () => { for (const o of await businessOrgs()) await enqueue('reports', 'weekly-org', { orgId: o.id }); },
     'weekly-org': async ({ orgId }) => runWeekly(orgId),
+    'monthly-all': async () => { for (const o of await businessOrgs()) await enqueue('reports', 'monthly-org', { orgId: o.id }); },
+    'monthly-org': async ({ orgId }) => sendMonthlyReport(orgId),
   },
   wallet: {
     'daily-debit': async () => { for (const o of await businessOrgs("AND payment_model = 'B'")) { await debitDailySpend(o.id); await checkWallet(o.id); } },
@@ -90,6 +93,7 @@ export const SCHEDULES = [
   { queue: 'rules', name: 'followup-check', pattern: '*/5 * * * *' },
   { queue: 'leads', name: 'poll-forms', pattern: '*/15 * * * *' },
   { queue: 'reports', name: 'weekly-all', pattern: '0 9 * * 1' },       // Monday 9:00
+  { queue: 'reports', name: 'monthly-all', pattern: '30 9 1 * *' },     // 1st of month 9:30
   { queue: 'wallet', name: 'daily-debit', pattern: '30 6 * * *' },      // after Meta finalises yesterday
   { queue: 'wallet', name: 'monthly-invoices', pattern: '0 8 1 * *' },
 ];

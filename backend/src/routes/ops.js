@@ -6,6 +6,7 @@ import { ah, parse, actorOf } from './util.js';
 import { setStatus, changeBudget, undoLast } from '../actions/service.js';
 import { decideAlert } from '../rules/runner.js';
 import { DEFAULTS } from '../rules/engine.js';
+import { getTemplate } from '../wizard/templates/index.js';
 import { topUp } from '../wallet/service.js';
 import { forbidden } from '../lib/errors.js';
 
@@ -45,7 +46,13 @@ ops.post('/orgs/:orgId/alerts/:id/decision', requireOrg('manager'), ah(async (re
 ops.get('/orgs/:orgId/rules', requireOrg('viewer'), ah(async (req, res) => {
   const { rows } = await query('SELECT * FROM rules WHERE org_id = $1', [req.org.id]);
   const by = Object.fromEntries(rows.map((r) => [r.rule_type, r]));
-  res.json(Object.entries(DEFAULTS).map(([type, def]) => ({ ruleType: type, enabled: by[type]?.enabled ?? def.enabled, threshold: { ...def, ...(by[type]?.threshold || {}) }, lastFired: by[type]?.last_fired || null })));
+  const { rows: [acc] } = await query('SELECT sector_template FROM ad_accounts WHERE org_id = $1 ORDER BY id LIMIT 1', [req.org.id]);
+  const tpl = getTemplate(acc?.sector_template).rules || {};
+  res.json(Object.entries(DEFAULTS).map(([type, def]) => ({
+    ruleType: type, enabled: by[type]?.enabled ?? def.enabled,
+    threshold: { ...def, ...(tpl[type] || {}), ...(by[type]?.threshold || {}) },
+    templateDefaults: tpl[type] || null, lastFired: by[type]?.last_fired || null,
+  })));
 }));
 
 ops.put('/orgs/:orgId/rules/:type', requireOrg('owner'), ah(async (req, res) => {

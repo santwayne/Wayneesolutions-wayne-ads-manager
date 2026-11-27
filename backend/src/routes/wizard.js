@@ -9,8 +9,9 @@ import { listTemplates, getTemplate } from '../wizard/templates/index.js';
 import { GOALS } from '../wizard/goals.js';
 import { createDraft, updateDraft, validate, createOnMeta, uploadMedia, getDraftContext } from '../wizard/service.js';
 import { analyzeImage } from '../wizard/media.js';
-import { generateCopy, imageTextHeavy } from '../ai/service.js';
+import { generateCopy, imageTextHeavy, strengthenOffer } from '../ai/service.js';
 import { launchCampaign, logAction } from '../actions/service.js';
+import { listStudioVideos } from '../integrations/videoStudio.js';
 
 export const wizard = Router();
 
@@ -47,9 +48,26 @@ wizard.post('/orgs/:orgId/drafts/:id/copy', requireOrg('manager'), ah(async (req
   res.json(out);
 }));
 
-// Screen 5: media upload. Images as raw bytes; videos by URL (e.g. from AI Video Studio).
+// Screen 5: "Offer kamzor hai" -> AI writes 3 stronger offers to pick from.
+wizard.post('/orgs/:orgId/drafts/:id/offer-ideas', requireOrg('manager'), ah(async (req, res) => {
+  const { draft, org } = await getDraftContext(req.org.id, Number(req.params.id));
+  const out = await strengthenOffer({ sector: draft.data.sector, offer: draft.data.offer, businessName: draft.data.businessName || org.name });
+  await logAction({ orgId: req.org.id, who: 'ai', source: 'ai', what: 'ai_decision', after: { step: 'offer_ideas', draftId: draft.id, offers: out.offers } });
+  res.json(out);
+}));
+
+// Screen 5: media. Images as raw bytes; video files as raw bytes (+ cover via /thumbnail);
+// or a finished video by link (AI Video Studio).
+const ASPECT_SIZE = { '9:16': [1080, 1920], '4:5': [1080, 1350], '1:1': [1080, 1080], '16:9': [1920, 1080] };
+async function addMedia(orgId, draft, item) {
+  const media = [...(draft.data.media || []), item].slice(0, 5);
+  await updateDraft(orgId, draft.id, { media });
+  return media;
+}
+
 wizard.post('/orgs/:orgId/drafts/:id/media', requireOrg('manager'), express.raw({ type: ['image/*'], limit: '30mb' }), ah(async (req, res) => {
   const { draft, adAccount } = await getDraftContext(req.org.id, Number(req.params.id));
+  if ((draft.data.media || []).length >= 5) throw badRequest('Max 5 photo/video');
   let item;
   if (Buffer.isBuffer(req.body) && req.body.length) {
     const qa = await analyzeImage(req.body);
@@ -57,14 +75,44 @@ wizard.post('/orgs/:orgId/drafts/:id/media', requireOrg('manager'), express.raw(
     const up = await uploadMedia(adAccount, { type: 'image', base64: req.body.toString('base64') });
     item = { type: 'image', ...qa, textHeavy, ...up };
   } else {
-    const b = parse(z.object({ type: z.literal('video'), fileUrl: z.string().url(), width: z.number().int(), height: z.number().int(), durationSec: z.number(), thumbnailUrl: z.string().url() }), req.body);
-    const up = await uploadMedia(adAccount, { type: 'video', fileUrl: b.fileUrl });
-    item = { type: 'video', width: b.width, height: b.height, durationSec: b.durationSec, thumbnailUrl: b.thumbnailUrl, url: b.fileUrl, ...up };
+    const b = parse(z.object({
+      type: z.literal('video'), fileUrl: z.string().url().refine((u) => u.startsWith('https://'), 'https link chahiye'),
+      width: z.number().int().optional(), height: z.number().int().optional(), aspect: z.enum(['9:16', '4:5', '1:1', '16:9']).optional(),
+      durationSec: z.number().optional(), thumbnailUrl: z.string().url().optional(), source: z.enum(['link', 'video_studio']).default('link'), title: z.string().optional(),
+    }), req.body);
+    const [w, h] = b.width && b.height ? [b.width, b.height] : ASPECT_SIZE[b.aspect] || [null, null];
+    const up = await uploadMedia(adAccount, { type: 'video', fileUrl: b.fileUrl, name: b.title });
+    item = { type: 'video', width: w, height: h, durationSec: b.durationSec ?? null, thumbnailUrl: b.thumbnailUrl || null, url: b.fileUrl, source: b.source, ...up };
   }
-  const media = [...(draft.data.media || []), item].slice(0, 5);
-  await updateDraft(req.org.id, draft.id, { media });
-  res.status(201).json({ item, media });
+  res.status(201).json({ item, media: await addMedia(req.org.id, draft, item) });
 }));
+
+// Video file from the computer/phone. The browser reads width/height/duration and sends them.
+wizard.post('/orgs/:orgId/drafts/:id/media/video', requireOrg('manager'), express.raw({ type: ['video/*', 'application/octet-stream'], limit: '200mb' }), ah(async (req, res) => {
+  const { draft, adAccount } = await getDraftContext(req.org.id, Number(req.params.id));
+  if ((draft.data.media || []).length >= 5) throw badRequest('Max 5 photo/video');
+  if (!Buffer.isBuffer(req.body) || !req.body.length) throw badRequest('Video file khaali hai');
+  const q = parse(z.object({ width: z.coerce.number().int().positive(), height: z.coerce.number().int().positive(), duration: z.coerce.number().positive(), name: z.string().max(120).optional() }), req.query);
+  const up = await uploadMedia(adAccount, { type: 'video', buffer: req.body, mimeType: req.get('content-type'), name: q.name || 'Wayne video' });
+  const item = { type: 'video', width: q.width, height: q.height, durationSec: q.duration, sizeMb: Math.round((req.body.length / 1e6) * 10) / 10, source: 'upload', ...up };
+  res.status(201).json({ item, media: await addMedia(req.org.id, draft, item) });
+}));
+
+// Cover photo for a video (browser grabs a frame; or the owner picks a photo).
+wizard.post('/orgs/:orgId/drafts/:id/media/:index/thumbnail', requireOrg('manager'), express.raw({ type: ['image/*'], limit: '10mb' }), ah(async (req, res) => {
+  const { draft, adAccount } = await getDraftContext(req.org.id, Number(req.params.id));
+  const media = [...(draft.data.media || [])];
+  const i = Number(req.params.index);
+  if (media[i]?.type !== 'video') throw badRequest('Ye video nahi hai');
+  if (!Buffer.isBuffer(req.body) || !req.body.length) throw badRequest('Cover image khaali hai');
+  const up = await uploadMedia(adAccount, { type: 'image', base64: req.body.toString('base64') });
+  media[i] = { ...media[i], thumbnailHash: up.imageHash, thumbnailUrl: up.url || media[i].thumbnailUrl };
+  await updateDraft(req.org.id, draft.id, { media });
+  res.json({ item: media[i], media });
+}));
+
+// AI Video Studio: this business's finished videos (when the two tools are linked).
+wizard.get('/orgs/:orgId/video-studio/videos', requireOrg('manager'), ah(async (req, res) => res.json(await listStudioVideos(req.org.id))));
 
 wizard.delete('/orgs/:orgId/drafts/:id/media/:index', requireOrg('manager'), ah(async (req, res) => {
   const { draft } = await getDraftContext(req.org.id, Number(req.params.id));

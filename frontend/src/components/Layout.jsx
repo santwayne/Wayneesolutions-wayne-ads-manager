@@ -20,6 +20,7 @@ export default function Layout() {
             <NavLink to={`/orgs/${orgId}/new`}>+ Naya campaign</NavLink>
             <NavLink to={`/orgs/${orgId}/alerts`}>Alerts</NavLink>
             <NavLink to={`/orgs/${orgId}/leads`}>Leads</NavLink>
+            <NavLink to={`/orgs/${orgId}/reports`}>Monthly report</NavLink>
             <NavLink to={`/orgs/${orgId}/log`}>Kya badla (log)</NavLink>
             {org.payment_model === 'B' && <NavLink to={`/orgs/${orgId}/wallet`}>Wallet</NavLink>}
             <NavLink to={`/orgs/${orgId}/settings`}>Settings</NavLink>

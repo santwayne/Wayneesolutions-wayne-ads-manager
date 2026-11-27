@@ -1,0 +1,464 @@
+From 32c533d2ff4d56260cf85b266f72efd5fc40cc35 Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Fri, 27 Nov 2026 16:54:52 +0530
+Subject: [PATCH] Wayne Ads link: GET /api/v1/hub/videos lists a business's
+ finished videos
+
+Signed tool-to-tool token (ADS_LINK_SECRET, iss wayne-ads, aud videoStudio,
+purpose list_videos, single use, 2 min). Read-only, only that business's DONE
+videos, absolute URLs via PUBLIC_BASE_URL.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01VoqNRdpeA8kqMvGQN4KRSy
+---
+ app/api/ads_link.py                           |  79 ++++++++++++++++++
+ app/core/config.py                            |   4 +
+ app/main.py                                   |   2 +
+ .../1/2200c8ee9f794d2a8a9483bb17416693.jpg    | Bin 0 -> 775 bytes
+ .../1/4ec22f81388543d3b12922d802166cad.jpg    | Bin 0 -> 5913 bytes
+ .../1/611de435547945ffa214198b5c28d297.mp4    | Bin 0 -> 12396 bytes
+ tests/test_ads_link.py                        |  61 ++++++++++++++
+ 7 files changed, 146 insertions(+)
+ create mode 100644 app/api/ads_link.py
+ create mode 100644 static/uploads/1/2200c8ee9f794d2a8a9483bb17416693.jpg
+ create mode 100644 static/uploads/1/4ec22f81388543d3b12922d802166cad.jpg
+ create mode 100644 static/uploads/1/611de435547945ffa214198b5c28d297.mp4
+ create mode 100644 tests/test_ads_link.py
+
+diff --git a/app/api/ads_link.py b/app/api/ads_link.py
+new file mode 100644
+index 0000000..7f4b20d
+--- /dev/null
++++ b/app/api/ads_link.py
+@@ -0,0 +1,79 @@
++"""
++Wayne Ads Manager -> Video Studio: list a business's finished videos so the ads wizard
++can import them (one platform, Bundle A).
++
++  GET /api/v1/hub/videos      Authorization: Bearer <JWT>
++
++The JWT is signed by Wayne Ads Manager with ADS_LINK_SECRET (same value as
++VIDEO_STUDIO_LINK_SECRET there): HS256, iss "wayne-ads", aud "videoStudio",
++purpose "list_videos", sub <Loopdesk business id>, jti, <= 2 minutes.
++Only that business's DONE videos come back; nothing can be changed through it.
++"""
++import time
++
++from fastapi import APIRouter, Depends, Header, HTTPException
++from jose import JWTError, jwt
++from sqlalchemy.orm import Session
++
++from app.core.config import settings
++from app.database.session import get_db
++from app.models.ad_project import AdProject, AdState
++from app.models.client import Client
++
++router = APIRouter(prefix="/api/v1/hub", tags=["Hub (Wayne Ads link)"])
++
++_seen: dict[str, float] = {}
++ASPECTS = {"9:16": (1080, 1920), "4:5": (1080, 1350), "1:1": (1080, 1080), "16:9": (1920, 1080)}
++
++
++def _verify(authorization: str | None) -> dict:
++    secret = settings.ADS_LINK_SECRET or ""
++    if len(secret) < 32:
++        raise HTTPException(status_code=503, detail="ADS_LINK_SECRET is not set on Video Studio")
++    if not authorization or not authorization.lower().startswith("bearer "):
++        raise HTTPException(status_code=401, detail="Missing token")
++    try:
++        claims = jwt.decode(authorization[7:].strip(), secret, algorithms=["HS256"], audience="videoStudio", issuer="wayne-ads")
++    except JWTError as e:
++        raise HTTPException(status_code=401, detail=f"Token rejected: {e}")
++    if claims.get("purpose") != "list_videos" or not claims.get("sub") or not claims.get("jti"):
++        raise HTTPException(status_code=401, detail="Token is for something else")
++    if time.time() - float(claims.get("iat", 0)) > 180:
++        raise HTTPException(status_code=401, detail="Token is too old")
++    now = time.time()
++    for k in [k for k, until in _seen.items() if until < now]:
++        _seen.pop(k, None)
++    if claims["jti"] in _seen:
++        raise HTTPException(status_code=401, detail="Token was already used")
++    _seen[claims["jti"]] = float(claims["exp"])
++    return claims
++
++
++def _abs(path: str) -> str:
++    base = (settings.PUBLIC_BASE_URL or "").rstrip("/")
++    return path if path.startswith("http") else f"{base}{path}"
++
++
++@router.get("/videos")
++def list_videos(authorization: str | None = Header(None), db: Session = Depends(get_db)):
++    claims = _verify(authorization)
++    client = db.query(Client).filter(Client.hub_business_id == claims["sub"]).first()
++    if not client:
++        return {"items": []}
++    ads = (db.query(AdProject)
++           .filter(AdProject.client_id == client.id, AdProject.kind == "video", AdProject.state == AdState.DONE)
++           .order_by(AdProject.created_at.desc()).limit(50).all())
++    items = []
++    for ad in ads:
++        scenes = (ad.script or {}).get("scenes") or []
++        thumb = next((s.get("image") for s in scenes if s.get("image")), None)
++        for aspect, path in (ad.outputs or {}).items():
++            if not str(path).endswith((".mp4", ".mov")):
++                continue
++            w, h = ASPECTS.get(aspect, (None, None))
++            items.append({
++                "id": f"{ad.id}:{aspect}", "title": (ad.brief or "Video")[:80], "url": _abs(path),
++                "thumbnail_url": _abs(thumb) if thumb else None, "seconds": ad.seconds, "aspect": aspect,
++                "width": w, "height": h, "created_at": ad.created_at.isoformat() if ad.created_at else None,
++            })
++    return {"items": items}
+diff --git a/app/core/config.py b/app/core/config.py
+index 8bf7f38..e72bb40 100644
+--- a/app/core/config.py
++++ b/app/core/config.py
+@@ -18,6 +18,10 @@ class Settings(BaseSettings):
+     # One platform (Bundle A): secret shared with the Regulars hub - same
+     # value as HUB_SECRET_VIDEO in Regulars (32+ random characters).
+     HUB_SECRET: str = ""
++    # Wayne Ads Manager link (GET /api/v1/hub/videos): same value as VIDEO_STUDIO_LINK_SECRET there.
++    ADS_LINK_SECRET: str = ""
++    # Public URL of this API, so /static/... video links work from other tools (e.g. https://aivideo.wayneesolutions.com).
++    PUBLIC_BASE_URL: str = ""
+ 
+     # Database — defaults to a local SQLite file so the app runs with zero setup.
+     # Swap to a real Postgres URL in .env for production, e.g.:
+diff --git a/app/main.py b/app/main.py
+index 964d5a5..2392476 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -12,6 +12,7 @@ from app.api.brand_kit import router as brand_kit_router
+ from app.api.clients import router as clients_router
+ from app.api.dashboard import router as dashboard_router
+ from app.api.hub import router as hub_router
++from app.api.ads_link import router as ads_link_router
+ from app.api.images import router as images_router
+ from app.api.jobs import router as jobs_router
+ from app.api.settings import router as settings_router
+@@ -74,6 +75,7 @@ app.include_router(activity_router)
+ app.include_router(brand_kit_router)
+ app.include_router(ads_router)
+ app.include_router(hub_router)  # One platform: Regulars hub provisioning
++app.include_router(ads_link_router)  # Wayne Ads Manager imports finished videos
+ 
+ # ── Health ────────────────────────────────────────────────────────────────────
+ 
+diff --git a/static/uploads/1/2200c8ee9f794d2a8a9483bb17416693.jpg b/static/uploads/1/2200c8ee9f794d2a8a9483bb17416693.jpg
+new file mode 100644
+index 0000000000000000000000000000000000000000..3e996c1646e6e18f641c49994649cdf447f29340
+GIT binary patch
+literal 775
+zcmeItI}XAy3<luebwVFWOHz{3nTZ=PG9V$rt+)Xzw_)hO5qK=z#HdUy8!O_Ir(d>Z
+z%T=Cm`|WNEB7i`EJg@;LNngyYn3c}7R!SFXI>~HdttpHttJ;;7uZ(ex^Rp0Rw9|Rp
+zgtiVb^h=19(n{xA=b<!Z_?n#IGdkkJv_RsCJxPc7K6NCO4#CkV10Wq5qW-a=H0!(l
+ZM+(RtmI;Yxk2MZBt(L>FzaPbNdjTLiAshez
+
+literal 0
+HcmV?d00001
+
+diff --git a/static/uploads/1/4ec22f81388543d3b12922d802166cad.jpg b/static/uploads/1/4ec22f81388543d3b12922d802166cad.jpg
+new file mode 100644
+index 0000000000000000000000000000000000000000..35ab0b7c8de1cb61d272a4f12e131021f22daa89
+GIT binary patch
+literal 5913
+zcmeItF-`+P3<c2d^$fe&nO$a*nI$En;s%r{kRpX!aSU$35h(T$kTki8(NZOJlt}-{
+z)t7DA_GxFNm;GT65kMe-o$w58nx$0LsXE_z@0{=3_NI${jG+%<7}seS^B6*!Qr?tW
+zYrMVNPG!3;wJb|So%7DGykC_e4CT-41G&?C_pb7QCW~gV8TIGXE3M5aNv<*gHe(W5
+q9=p_bOLzX20(L}HL6bFOhgZBkJzkCx5fKp)5fKp)5z)W5v#)O?Tp-o}
+
+literal 0
+HcmV?d00001
+
+diff --git a/static/uploads/1/611de435547945ffa214198b5c28d297.mp4 b/static/uploads/1/611de435547945ffa214198b5c28d297.mp4
+new file mode 100644
+index 0000000000000000000000000000000000000000..fe07fd9ec50775f76ec7cd4eb86a0c17851698ed
+GIT binary patch
+literal 12396
+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
+F{{_Yy*D(M9
+
+literal 0
+HcmV?d00001
+
+diff --git a/tests/test_ads_link.py b/tests/test_ads_link.py
+new file mode 100644
+index 0000000..ac39ec2
+--- /dev/null
++++ b/tests/test_ads_link.py
+@@ -0,0 +1,61 @@
++import time
++import uuid
++
++from jose import jwt
++
++from app.core.config import settings
++from app.database.session import SessionLocal
++from app.models.ad_project import AdProject, AdState
++from app.models.client import Client
++
++SECRET = "a" * 40
++
++
++def token(sub, **kw):
++    now = int(time.time())
++    claims = {"iss": "wayne-ads", "aud": "videoStudio", "sub": sub, "purpose": "list_videos", "jti": str(uuid.uuid4()), "iat": now, "exp": now + 120}
++    claims.update(kw)
++    return jwt.encode(claims, SECRET, algorithm="HS256")
++
++
++def seed():
++    db = SessionLocal()
++    mine = Client(company_name="UJOY", email="u@x.in", hub_business_id="hub-1")
++    other = Client(company_name="Other", email="o@x.in", hub_business_id="hub-2")
++    db.add_all([mine, other]); db.flush()
++    db.add_all([
++        AdProject(client_id=mine.id, kind="video", brief="Brown sugar boba reel", state=AdState.DONE, seconds=15,
++                  outputs={"9:16": "/static/ads/a1/v916.mp4", "1:1": "/static/ads/a1/v11.mp4"}, script={"scenes": [{"image": "/static/ads/a1/s0.jpg"}]}),
++        AdProject(client_id=mine.id, kind="video", brief="Still rendering", state=AdState.RENDERING, outputs={}, script={}),
++        AdProject(client_id=other.id, kind="video", brief="Not yours", state=AdState.DONE, outputs={"9:16": "/static/ads/b/v.mp4"}, script={}),
++    ])
++    db.commit(); db.close()
++
++
++def test_lists_only_this_business_done_videos(http, monkeypatch):
++    monkeypatch.setattr(settings, "ADS_LINK_SECRET", SECRET)
++    monkeypatch.setattr(settings, "PUBLIC_BASE_URL", "https://aivideo.example.com")
++    seed()
++    r = http.get("/api/v1/hub/videos", headers={"authorization": f"Bearer {token('hub-1')}"})
++    assert r.status_code == 200, r.text
++    items = r.json()["items"]
++    assert {i["aspect"] for i in items} == {"9:16", "1:1"}
++    assert all(i["url"].startswith("https://aivideo.example.com/static/ads/a1/") for i in items)
++    assert items[0]["thumbnail_url"] == "https://aivideo.example.com/static/ads/a1/s0.jpg"
++    assert all("Not yours" not in i["title"] for i in items)
++
++
++def test_rejects_bad_tokens(http, monkeypatch):
++    monkeypatch.setattr(settings, "ADS_LINK_SECRET", SECRET)
++    assert http.get("/api/v1/hub/videos").status_code == 401
++    assert http.get("/api/v1/hub/videos", headers={"authorization": f"Bearer {token('hub-1', purpose='sso')}"}).status_code == 401
++    bad = jwt.encode({"iss": "wayne-ads", "aud": "videoStudio", "sub": "hub-1", "purpose": "list_videos", "jti": "x", "iat": int(time.time()), "exp": int(time.time()) + 60}, "b" * 40, algorithm="HS256")
++    assert http.get("/api/v1/hub/videos", headers={"authorization": f"Bearer {bad}"}).status_code == 401
++    t = token("hub-1")
++    assert http.get("/api/v1/hub/videos", headers={"authorization": f"Bearer {t}"}).status_code == 200
++    assert http.get("/api/v1/hub/videos", headers={"authorization": f"Bearer {t}"}).status_code == 401  # single use
++
++
++def test_not_configured(http, monkeypatch):
++    monkeypatch.setattr(settings, "ADS_LINK_SECRET", "")
++    assert http.get("/api/v1/hub/videos", headers={"authorization": f"Bearer {token('hub-1')}"}).status_code == 503
+-- 
+2.43.0
+
