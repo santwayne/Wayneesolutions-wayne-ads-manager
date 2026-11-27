@@ -13,7 +13,8 @@
     "seed": "node src/db/seed.js",
     "dev": "node --watch src/server.js",
     "test": "NODE_ENV=test node --test --test-concurrency=1 test/*.test.js",
-    "verify:meta": "node scripts/verify-meta.js"
+    "verify:meta": "node scripts/verify-meta.js",
+    "seed:review": "node scripts/seed-review-account.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.14.0",

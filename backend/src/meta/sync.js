@@ -128,6 +128,7 @@ export async function syncAdAccount(adAccountId, { graph } = {}) {
   const { rows } = await query('SELECT * FROM ad_accounts WHERE id = $1', [adAccountId]);
   const acc = rows[0];
   if (!acc) throw new Error('ad account not found');
+  if (acc.meta_account_id.startsWith('act_demo')) return { structure: null, insights: 0 }; // demo data is seeded, never synced
   const g = graph || await graphForAdAccount(acc);
   const structure = await syncStructure(acc, g);
   const insights = acc.backfilled_at ? await syncInsights(acc, g) : await backfillInsights(acc, g);

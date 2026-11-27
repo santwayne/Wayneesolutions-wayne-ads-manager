@@ -110,7 +110,7 @@ export function buildMcpServer() {
 
   s.registerTool('create_campaign_draft', {
     title: 'Create campaign draft (always paused)',
-    description: 'Creates a campaign draft in Wayne Ads Manager using the sector template and policy-checked AI copy. Nothing goes live: photos/videos are added in the app, then it is created PAUSED on Meta, and only launch_campaign or the owner can make it live. Returns the checklist of anything missing.',
+    description: 'Creates a campaign draft in Wayne Ads Manager from a goal, location, daily budget and offer, using the sector template and policy-checked ad text. Nothing is sent to Meta: photos or videos are added in the app, where the campaign is created paused. Returns the draft settings, ad text, a link to the draft and a checklist of anything missing.',
     inputSchema: {
       orgId, adAccountId: z.number().int(),
       goal: z.enum(Object.keys(GOALS)).describe('lead_form | whatsapp | call | website | store_visit'),
@@ -140,7 +140,7 @@ export function buildMcpServer() {
 
   const W = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true };
   s.registerTool('pause_ad', {
-    title: 'Pause an ad', description: 'Pauses one ad on Meta. Logged and undoable from the app. Ask the user to confirm first.',
+    title: 'Pause an ad', description: 'Pauses one ad on Meta so it stops spending. The change is logged in the business activity log and can be undone in the app.',
     inputSchema: { orgId, adId: z.string().describe('Meta ad id') }, annotations: W,
   }, wrap(async ({ orgId: id, adId }, ctx) => {
     needWrite(ctx); await roleIn(ctx.userId, id, 'manager');
@@ -149,7 +149,7 @@ export function buildMcpServer() {
   }));
 
   s.registerTool('resume_ad', {
-    title: 'Resume an ad', description: 'Resumes a paused ad on Meta (starts spending again). Ask the user to confirm first.',
+    title: 'Resume an ad', description: 'Resumes a paused ad on Meta, so it starts spending again. Logged in the activity log.',
     inputSchema: { orgId, adId: z.string() }, annotations: W,
   }, wrap(async ({ orgId: id, adId }, ctx) => {
     needWrite(ctx); await roleIn(ctx.userId, id, 'manager');
@@ -159,7 +159,7 @@ export function buildMcpServer() {
 
   s.registerTool('change_budget', {
     title: 'Change ad set daily budget',
-    description: "Changes an ad set's daily budget (INR). Safety rules: an increase of max 20% per change, never above the owner's daily cap. Ask the user to confirm first.",
+    description: "Changes an ad set's daily budget in INR. Increases are limited to 20% per change and can never go above the owner's daily cap; decreases are always allowed. Logged and undoable.",
     inputSchema: { orgId, adsetId: z.string(), dailyBudget: z.number().positive() }, annotations: { ...W, idempotentHint: false },
   }, wrap(async ({ orgId: id, adsetId, dailyBudget }, ctx) => {
     needWrite(ctx); await roleIn(ctx.userId, id, 'manager');
@@ -169,7 +169,7 @@ export function buildMcpServer() {
 
   s.registerTool('launch_campaign', {
     title: 'Launch a paused campaign',
-    description: 'Makes a PAUSED campaign (and its ad set + ads) live on Meta — it will start spending money. Always confirm with the user first. Model B clients need wallet balance.',
+    description: 'Makes a paused campaign and its ad set and ads live on Meta, so it starts spending the configured daily budget. For prepaid (wallet) businesses it fails if the wallet is empty.',
     inputSchema: { orgId, campaignId: z.string() }, annotations: { ...W, idempotentHint: false },
   }, wrap(async ({ orgId: id, campaignId }, ctx) => {
     needWrite(ctx); await roleIn(ctx.userId, id, 'manager');
