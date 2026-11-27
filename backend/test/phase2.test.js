@@ -230,3 +230,52 @@ test('Google Ads: GAQL rows -> insights (micros -> INR, account roll-up), sync v
   const { rows: [i] } = await query("SELECT spend, platform FROM insights_daily WHERE object_id = 'g:customers/1234567890'");
   assert.equal(i.spend, 2000); assert.equal(i.platform, 'google');
 });
+
+test('Google Search campaign from wizard draft: checks, PAUSED + PRESENCE + proximity, launch needs a human', async () => {
+  const { prepareGoogleCopy, validateGoogleDraft, buildSearchCampaignOps, assertGoogleMutateAllowed, checkGoogleText } = await import('../src/google/builder.js');
+  const { getTemplate } = await import('../src/wizard/templates/index.js');
+  assert.ok(checkGoogleText('Book Now!', 'headline', getTemplate('ielts')).some((i) => i.code === 'exclamation'));
+  assert.ok(checkGoogleText('100% Visa Guarantee', 'headline', getTemplate('ielts')).some((i) => i.level === 'block'));
+  assert.ok(checkGoogleText('x'.repeat(31), 'headline', getTemplate('ielts')).some((i) => i.code === 'too_long'));
+  const copy = prepareGoogleCopy({ headlines: ['Free IELTS Demo Class', 'Book Now!', 'Band Score Test Free', 'Model Town Ludhiana'], descriptions: ['Free demo class and band score test. Book your seat today.', 'Small batches, expert trainers. Call now.'], keywords: ['ielts coaching model town'] }, 'ielts');
+  assert.equal(copy.headlines.length, 3);
+  assert.ok(copy.keywords.includes('ielts coaching') && copy.keywords.includes('ielts coaching model town'));
+  const d = { sector: 'ielts', location: { lat: 30.89, lng: 75.83 }, radiusKm: 12, language: 'english', websiteUrl: 'https://sky.in', googleDailyBudget: 500, phone: '+919876543210' };
+  assert.equal(validateGoogleDraft(d, copy).blocking, false);
+  assert.ok(validateGoogleDraft({ ...d, websiteUrl: null }, copy).checks.some((c) => c.code === 'no_website'));
+  const body = buildSearchCampaignOps('1234567890', d, copy);
+  const camp = body.mutateOperations.find((o) => o.campaignOperation).campaignOperation.create;
+  assert.equal(camp.status, 'PAUSED');
+  assert.equal(camp.geoTargetTypeSetting.positiveGeoTargetType, 'PRESENCE');
+  assert.equal(body.mutateOperations.find((o) => o.campaignBudgetOperation).campaignBudgetOperation.create.amountMicros, '500000000');
+  const prox = body.mutateOperations.find((o) => o.campaignCriterionOperation?.create.proximity).campaignCriterionOperation.create.proximity;
+  assert.equal(prox.radius, 12); assert.equal(prox.geoPoint.latitudeInMicroDegrees, 30890000);
+  assert.ok(body.mutateOperations.some((o) => o.assetOperation?.create.callAsset));
+  assert.throws(() => assertGoogleMutateAllowed('x', { mutateOperations: [{ campaignOperation: { create: { status: 'ENABLED' } } }] }), /PAUSED/);
+  assert.throws(() => assertGoogleMutateAllowed('customers/1/billingSetups:mutate', {}), /Billing/);
+
+  // End to end through the API with a fake Google
+  const acc = (await query("SELECT id FROM ad_accounts WHERE meta_account_id = 'act_9'")).rows[0];
+  const dr = await api('POST', `/api/orgs/${hubOrgId}/drafts`, { adAccountId: acc.id, data: {} });
+  await api('PATCH', `/api/orgs/${hubOrgId}/drafts/${dr.body.id}`, { sector: 'ielts', location: { lat: 30.89, lng: 75.83 }, radiusKm: 10, offer: 'Free demo class', websiteUrl: 'https://sky.in/demo' });
+  const gc = await api('POST', `/api/orgs/${hubOrgId}/drafts/${dr.body.id}/google/copy`);
+  assert.equal(gc.status, 200, JSON.stringify(gc.body));
+  assert.ok(gc.body.headlines.every((h) => h.length <= 30 && !h.includes('!')));
+  const ga = (await query("SELECT id FROM google_accounts WHERE customer_id = '1234567890'")).rows[0];
+  const mutates = [];
+  setGoogleFetch(async (url, init) => {
+    if (String(url).includes('oauth2')) return { ok: true, json: async () => ({ access_token: 'at' }) };
+    if (String(url).endsWith('googleAds:mutate')) { mutates.push(JSON.parse(init.body)); return { ok: true, json: async () => ({ mutateOperationResponses: [{ campaignBudgetResult: {} }, { campaignResult: { resourceName: 'customers/1234567890/campaigns/777' } }] }) }; }
+    if (String(url).endsWith('campaigns:mutate')) { mutates.push(JSON.parse(init.body)); return { ok: true, json: async () => ({}) }; }
+    return { ok: true, json: async () => ({ results: [] }) };
+  });
+  const cr = await api('POST', `/api/orgs/${hubOrgId}/drafts/${dr.body.id}/google/create`, { googleAccountId: ga.id, dailyBudget: 500 });
+  assert.equal(cr.status, 201, JSON.stringify(cr.body));
+  assert.equal(cr.body.campaignId, '777'); assert.equal(cr.body.status, 'PAUSED');
+  assert.equal(mutates[0].mutateOperations.find((o) => o.campaignOperation).campaignOperation.create.status, 'PAUSED');
+  assert.equal((await api('POST', `/api/orgs/${hubOrgId}/drafts/${dr.body.id}/google/create`, { googleAccountId: ga.id, dailyBudget: 500 })).status, 409);
+  // launch (ENABLED) by the user from the app
+  const en = await api('POST', `/api/orgs/${hubOrgId}/google/campaigns/777/status`, { status: 'ENABLED' });
+  assert.equal(en.status, 200, JSON.stringify(en.body));
+  assert.equal(mutates[1].operations[0].update.status, 'ENABLED');
+});

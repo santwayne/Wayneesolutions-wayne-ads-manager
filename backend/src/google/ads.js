@@ -8,6 +8,9 @@ import { encryptSecret, decryptSecret } from '../lib/crypto.js';
 import { requireAuth, requireOrg } from '../lib/auth.js';
 import { ah, parse, actorOf } from '../routes/util.js';
 import { logAction } from '../actions/service.js';
+import { assertGoogleMutateAllowed, buildSearchCampaignOps, prepareGoogleCopy, validateGoogleDraft } from './builder.js';
+import { generateGoogleCopy } from '../ai/service.js';
+import { getDraftContext, updateDraft } from '../wizard/service.js';
 
 /**
  * Google Ads API (Phase 2): connect via Google OAuth, pick customer accounts, daily
@@ -33,6 +36,7 @@ async function accessToken(refreshToken) {
 }
 
 async function gads(conn, method, path, body) {
+  if (method !== 'GET') assertGoogleMutateAllowed(path, body);
   const at = await accessToken(await decryptSecret(conn.refresh_token_enc));
   const headers = { authorization: `Bearer ${at}`, 'developer-token': config.google.developerToken, 'content-type': 'application/json' };
   if (conn.login_customer_id) headers['login-customer-id'] = conn.login_customer_id;
@@ -100,10 +104,17 @@ export async function setGoogleCampaignStatus({ orgId, campaignId, status, actor
   if (!gc) throw notFound('Google campaign nahi mila');
   if (gc.status === status) return { unchanged: true };
   if (status === 'ENABLED' && !['user', 'whatsapp', 'mcp'].includes(actor.source)) throw conflict('Enable sirf insaan kar sakta hai');
+  if (status === 'ENABLED') {
+    const { rows: [org] } = await query('SELECT payment_model FROM orgs WHERE id = $1', [orgId]);
+    if (org?.payment_model === 'B') {
+      const { rows: [w] } = await query('SELECT balance FROM wallets WHERE org_id = $1', [orgId]);
+      if (!w || Number(w.balance) <= 0) throw conflict('Wallet khaali hai — pehle top-up karein');
+    }
+  }
   await gads(gc.conn, 'POST', `customers/${gc.customer_id}/campaigns:mutate`, {
     operations: [{ update: { resourceName: `customers/${gc.customer_id}/campaigns/${campaignId}`, status }, updateMask: 'status' }],
   });
-  await query('UPDATE google_campaigns SET status = $2 WHERE id = $1', [gc.id, status]);
+  await query('UPDATE google_campaigns SET status = $2, launched_at = CASE WHEN $2 = \'ENABLED\' THEN COALESCE(launched_at, now()) ELSE launched_at END WHERE id = $1', [gc.id, status]);
   return { log: await logAction({ orgId, who: actor.who, source: actor.source, what: status === 'PAUSED' ? 'pause' : 'resume', level: 'google_campaign', objectId: `g:${campaignId}`, before: { status: gc.status }, after: { status } }) };
 }
 
@@ -165,4 +176,61 @@ google.get('/orgs/:orgId/google/campaigns', requireOrg('viewer'), ah(async (req,
 google.post('/orgs/:orgId/google/campaigns/:campaignId/status', requireOrg('manager'), ah(async (req, res) => {
   const { status } = parse(z.object({ status: z.enum(['PAUSED', 'ENABLED']) }), req.body);
   res.json(await setGoogleCampaignStatus({ orgId: req.org.id, campaignId: req.params.campaignId, status, actor: actorOf(req) }));
+}));
+
+
+// ---- Phase 2: Google Search campaign from the wizard draft (always PAUSED) ----
+async function accountFor(orgId, googleAccountId) {
+  const { rows: [ga] } = await query('SELECT g.*, row_to_json(c.*) AS conn FROM google_accounts g JOIN google_connections c ON c.id = g.connection_id WHERE g.id = $1 AND g.org_id = $2', [googleAccountId, orgId]);
+  if (!ga) throw notFound('Google account nahi mila');
+  return ga;
+}
+
+export async function googleCopyForDraft(orgId, draftId) {
+  const { draft, org } = await getDraftContext(orgId, draftId);
+  const d = draft.data;
+  const ai = await generateGoogleCopy({ sector: d.sector, offer: d.offer, businessName: d.businessName || org.name, area: d.location?.label || d.area });
+  const copy = prepareGoogleCopy(ai, d.sector);
+  await updateDraft(orgId, draftId, { google: { ...(d.google || {}), ...copy } });
+  return copy;
+}
+
+export async function createGoogleFromDraft(orgId, draftId, { googleAccountId, dailyBudget, websiteUrl, actor }) {
+  const { draft } = await getDraftContext(orgId, draftId);
+  if (draft.google_campaign_id) throw conflict('Google campaign pehle hi ban chuka hai');
+  const ga = await accountFor(orgId, googleAccountId);
+  const d = { ...draft.data, radiusKm: draft.data.radiusKm || 10, websiteUrl: websiteUrl || draft.data.websiteUrl, googleDailyBudget: dailyBudget };
+  const copy = prepareGoogleCopy(d.google || {}, d.sector);
+  const v = validateGoogleDraft(d, copy);
+  if (v.blocking) throw badRequest('Google checklist mein laal items theek karo', v.checks.filter((c) => c.level === 'block'));
+  const body = buildSearchCampaignOps(ga.customer_id, d, copy);
+  const r = await gads(ga.conn, 'POST', `customers/${ga.customer_id}/googleAds:mutate`, body);
+  const campRes = (r.mutateOperationResponses || []).map((x) => x.campaignResult?.resourceName).find(Boolean);
+  if (!campRes) throw new AppError(502, 'google_ads_error', 'Google ne campaign id nahi lautaya');
+  const campaignId = campRes.split('/').pop();
+  await query(`INSERT INTO google_campaigns (org_id, google_account_id, campaign_id, name, status, channel, created_by_wizard, wizard_draft_id, daily_budget)
+    VALUES ($1,$2,$3,$4,'PAUSED','SEARCH',true,$5,$6) ON CONFLICT (google_account_id, campaign_id) DO NOTHING`,
+  [orgId, ga.id, campaignId, `Wayne | ${d.sector}`, draftId, dailyBudget]);
+  await query('UPDATE wizard_drafts SET google_campaign_id = $3, updated_at = now() WHERE id = $1 AND org_id = $2', [draftId, orgId, campaignId]);
+  await logAction({ orgId, who: actor.who, source: actor.source, what: 'create', level: 'google_campaign', objectId: `g:${campaignId}`, after: { status: 'PAUSED', dailyBudget, keywords: copy.keywords.length, headlines: copy.headlines.length } });
+  return { campaignId, status: 'PAUSED', checks: v.checks };
+}
+
+google.post('/orgs/:orgId/drafts/:id/google/copy', requireOrg('manager'), ah(async (req, res) => res.json(await googleCopyForDraft(req.org.id, Number(req.params.id)))));
+
+google.get('/orgs/:orgId/drafts/:id/google/validate', requireOrg('viewer'), ah(async (req, res) => {
+  const { draft } = await getDraftContext(req.org.id, Number(req.params.id));
+  const d = { ...draft.data, googleDailyBudget: Number(req.query.dailyBudget) || draft.data.google?.dailyBudget, websiteUrl: req.query.websiteUrl || draft.data.websiteUrl };
+  const copy = prepareGoogleCopy(d.google || {}, d.sector);
+  res.json({ copy, ...validateGoogleDraft(d, copy) });
+}));
+
+google.post('/orgs/:orgId/drafts/:id/google/create', requireOrg('manager'), ah(async (req, res) => {
+  const b = parse(z.object({ googleAccountId: z.number().int(), dailyBudget: z.number().positive(), websiteUrl: z.string().url().optional() }), req.body);
+  res.status(201).json(await createGoogleFromDraft(req.org.id, Number(req.params.id), { ...b, actor: actorOf(req) }));
+}));
+
+google.get('/orgs/:orgId/google/accounts', requireOrg('viewer'), ah(async (req, res) => {
+  const { rows } = await query('SELECT id, customer_id, name, currency, last_synced_at FROM google_accounts WHERE org_id = $1', [req.org.id]);
+  res.json(rows);
 }));

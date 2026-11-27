@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, inr } from '../api.js';
 import MapPicker from './MapPicker.jsx';
+import GoogleCard from './GoogleCard.jsx';
 
 const STEPS = ['Kya chahiye', 'Business type', 'Kahan aur kisko', 'Budget', 'Offer aur ad', 'Lead form', 'Review'];
 const GOAL_HELP = { lead_form: 'Log form mein naam aur number bharenge', whatsapp: 'Log seedha aapko WhatsApp karenge', call: 'Log ad se seedha call karenge', website: 'Log website pe book/kharid karenge', store_visit: 'Aas paas ke log dukaan pe aayenge' };
@@ -215,6 +216,7 @@ export default function Wizard() {
                 <div className="row" style={{ marginTop: 10 }}><button className="primary" disabled={busy === 'launch'} onClick={launch}>🚀 Launch</button><button onClick={() => nav(`/orgs/${orgId}`)}>Baad mein</button></div>
               </div>
             )}
+            <GoogleCard orgId={orgId} draft={draft} />
           </div>
         </div>
       )}
