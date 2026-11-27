@@ -80,4 +80,29 @@ export const config = {
   },
 
   gstRate: Number(process.env.GST_RATE || 0.18),
+
+  // ---- Phase 2 ----
+  hub: {
+    // Loopdesk hub (regularsplatform): same HUB_SECRET on both sides.
+    secret: process.env.HUB_SECRET || '',
+    audience: process.env.HUB_AUDIENCE || 'wayne-ads',
+    eventsUrl: process.env.HUB_EVENTS_URL || '',        // e.g. https://app.loopdeskai.wayneesolutions.com/api/v1/events
+    eventsKey: process.env.HUB_EVENTS_KEY || '',        // rk_live_...
+    agencyOrgId: Number(process.env.WAYNE_AGENCY_ORG_ID || 0) || null,
+  },
+  razorpay: {
+    keyId: process.env.RAZORPAY_KEY_ID || '',
+    keySecret: process.env.RAZORPAY_KEY_SECRET || '',
+    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
+  },
+  google: {
+    clientId: process.env.GOOGLE_ADS_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_ADS_CLIENT_SECRET || '',
+    developerToken: process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '',
+    apiVersion: process.env.GOOGLE_ADS_API_VERSION || 'v26',
+  },
+  mcp: {
+    accessTtlSec: 3600,
+    refreshTtlSec: 30 * 86400,
+  },
 };

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api.js';
+import Connections from '../components/Connections.jsx';
 
 const RULE_LABEL = { money_burn: 'Paisa jal raha', expensive_ad: 'Mehnga ad', winner: 'Winner (budget +20%)', creative_fatigue: 'Creative thak gaya', delivery_stopped: 'Delivery ruk gayi', ad_rejected: 'Ad reject', tracking_broken: 'Tracking toota', lead_followup: 'Lead follow-up', out_of_area: 'Out of area %', wallet_low: 'Wallet low' };
 
@@ -55,6 +56,7 @@ export default function Settings() {
           )}
         </div>
       </div>
+      <Connections orgId={orgId} owner={owner} templates={tpls} onChange={load} />
       <h2>Rules (thresholds)</h2>
       <table><thead><tr><th>Rule</th><th>On</th><th>Thresholds</th><th>Last fired</th></tr></thead>
         <tbody>{rules.map((r) => (

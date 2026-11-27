@@ -2,6 +2,7 @@ import { query } from '../lib/db.js';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { graphForAdAccount } from '../meta/tokens.js';
 import { toMinor } from '../meta/sync.js';
+import { queueHubEvent } from '../hub/events.js';
 
 /**
  * Every write to Meta goes through here (money safety, spec "non-negotiable"):
@@ -13,7 +14,8 @@ import { toMinor } from '../meta/sync.js';
 
 export const MAX_BUDGET_STEP = 0.20;
 const TABLE = { campaign: 'campaigns', adset: 'adsets', ad: 'ads' };
-const LAUNCH_SOURCES = new Set(['user', 'whatsapp']);
+// MCP = a signed-in user confirming in Claude (destructive tool, confirmed every time).
+const LAUNCH_SOURCES = new Set(['user', 'whatsapp', 'mcp']);
 
 let graphFactory = graphForAdAccount;
 export function setGraphFactory(fn) { graphFactory = fn; } // tests
@@ -92,6 +94,7 @@ export async function launchCampaign({ orgId, campaignMetaId, actor }) {
   await query("UPDATE campaigns SET status='ACTIVE', launched_at=now(), updated_at=now() WHERE id = $1", [camp.id]);
   await query("UPDATE wizard_drafts SET status='launched', updated_at=now() WHERE campaign_id = $1", [camp.id]);
   const log = await logAction({ orgId, who: actor.who, source: actor.source, level: 'campaign', objectId: campaignMetaId, what: 'launch', before: { status: camp.status }, after: { status: 'ACTIVE' } });
+  await queueHubEvent(orgId, 'ads.campaign_launched', { campaign_id: campaignMetaId, name: camp.name });
   return { log };
 }
 

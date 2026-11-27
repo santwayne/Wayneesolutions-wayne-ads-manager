@@ -2,6 +2,7 @@ import { config } from '../config.js';
 import { query } from '../lib/db.js';
 import { decryptSecret, encryptSecret } from '../lib/crypto.js';
 import { createGraphClient, MetaApiError } from './graph.js';
+import { notifyOwner } from '../notify/whatsapp.js';
 
 /**
  * Token resolution.
@@ -22,7 +23,9 @@ export async function storeConnection({ orgId, kind, token, scopes = [], expires
 
 const VALIDITY_CACHE_MS = 15 * 60_000;
 
-export async function tokenForAdAccount(adAccount, { onExpired } = {}) {
+const defaultOnExpired = (conn) => notifyOwner(conn.org_id, '🔌 Aapka Meta (Facebook) connection expire ho gaya hai. Ads ka data aur alerts ruk gaye hain — app mein Settings → "Meta connect karo" dabayein.');
+
+export async function tokenForAdAccount(adAccount, { onExpired = defaultOnExpired } = {}) {
   if (!adAccount.connection_id) {
     if (!config.meta.systemUserToken) throw new Error('META_SYSTEM_USER_TOKEN not set');
     return config.meta.systemUserToken;
@@ -31,6 +34,11 @@ export async function tokenForAdAccount(adAccount, { onExpired } = {}) {
   const conn = rows[0];
   if (!conn || conn.status !== 'active') throw new Error('Meta connection not active — reconnect needed');
   const token = await decryptSecret(conn.token_enc);
+  if (conn.expires_at && new Date(conn.expires_at) < new Date()) {
+    await query("UPDATE meta_connections SET status='expired' WHERE id=$1", [conn.id]);
+    if (onExpired) await onExpired(conn);
+    throw new Error('Meta token expired — reconnect needed');
+  }
 
   const stale = !conn.last_checked_at || Date.now() - new Date(conn.last_checked_at).getTime() > VALIDITY_CACHE_MS;
   if (conn.kind === 'user' && stale) {

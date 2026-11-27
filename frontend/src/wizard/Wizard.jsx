@@ -33,6 +33,9 @@ export default function Wizard() {
   useEffect(() => {
     api('GET', '/wizard/templates').then(setMeta);
     api('GET', `/orgs/${orgId}/ad-accounts`).then(setAccounts);
+    // Continue a draft started elsewhere (e.g. from Claude via the MCP connector).
+    const existing = new URLSearchParams(window.location.search).get('draft');
+    if (existing) api('GET', `/orgs/${orgId}/drafts/${existing}`).then((dr) => { setDraft(dr); }).catch(() => {});
   }, [orgId]);
 
   const d0 = draft?.data || {};
