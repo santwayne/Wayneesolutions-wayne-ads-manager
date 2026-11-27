@@ -1,0 +1,1 @@
+# Wayneesolutions-wayne-ads-manager
