@@ -36,7 +36,7 @@ const api = async (method, path, body, { headers = {}, raw, auth = true } = {}) 
   const t = await res.text(); let j; try { j = JSON.parse(t); } catch { j = t; }
   return { status: res.status, body: j, headers: res.headers };
 };
-const hubToken = (sub, extra = {}) => jwt.sign({ jti: crypto.randomUUID(), ...extra }, 'hub-secret', { algorithm: 'HS256', issuer: 'regulars-hub', audience: 'wayne-ads', subject: sub, expiresIn: '2m' });
+const hubToken = (sub, purpose = 'provision', extra = {}) => jwt.sign({ jti: crypto.randomUUID(), purpose, ...extra }, 'hub-secret', { algorithm: 'HS256', issuer: 'regulars-hub', audience: 'wayne-ads', subject: sub, expiresIn: '2m' });
 
 test.before(async () => {
   await pool.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
@@ -53,30 +53,35 @@ test.after(async () => { server.close(); await pool.end(); });
 
 let hubOrgId;
 test('Loopdesk hub: provision (create/update), single-use token, SSO exchange, pause on lapse, events outbox', async () => {
-  const body = { business: { name: 'UJOY Bubble Tea', whatsapp: '919800000001' }, owner: { name: 'Owner', email: 'owner@ujoy.test' }, status: 'active' };
+  const body = { hubBusinessId: 'hub-biz-42', active: true, business: { name: 'UJOY Bubble Tea', sector: 'RESTAURANT', country: 'IN', phone: '919800000001' }, owner: { name: 'Owner', email: 'owner@ujoy.test' }, paidUntil: '2026-12-31', tools: ['wayne-ads'] };
   const bad = await api('POST', '/api/hub/provision', body, { auth: false, headers: { authorization: 'Bearer nope' } });
-  assert.equal(bad.status, 401); assert.equal(bad.body.message, 'Hub token rejected');
+  assert.equal(bad.status, 401); assert.equal(bad.body.error, 'Hub token rejected');
+  // an SSO-purpose token can't provision, and a token for another business is refused
+  assert.equal((await api('POST', '/api/hub/provision', body, { auth: false, headers: { authorization: `Bearer ${hubToken('hub-biz-42', 'sso')}` } })).status, 401);
+  assert.equal((await api('POST', '/api/hub/provision', body, { auth: false, headers: { authorization: `Bearer ${hubToken('other')}` } })).status, 403);
   const t1 = hubToken('hub-biz-42');
   const r = await api('POST', '/api/hub/provision', body, { auth: false, headers: { authorization: `Bearer ${t1}` } });
-  assert.equal(r.status, 200, JSON.stringify(r.body)); hubOrgId = Number(r.body.external_id);
+  assert.equal(r.status, 200, JSON.stringify(r.body)); hubOrgId = Number(r.body.accountId);
+  assert.equal(r.body.status, 'ACTIVE'); assert.equal(r.body.data.sectorTemplate, 'restaurant');
   const reuse = await api('POST', '/api/hub/provision', body, { auth: false, headers: { authorization: `Bearer ${t1}` } });
   assert.equal(reuse.status, 401);
   // staff got access automatically
   const me = await api('GET', '/api/auth/me');
   assert.ok(me.body.orgs.some((o) => o.id === hubOrgId));
 
-  const sso = await api('POST', '/api/hub/sso/exchange', { ticket: hubToken('hub-biz-42') }, { auth: false });
-  assert.equal(sso.status, 200); assert.equal(sso.body.orgId, hubOrgId);
+  assert.equal((await api('POST', '/api/hub/sso/exchange', { token: hubToken('hub-biz-42', 'provision') }, { auth: false })).status, 401);
+  const sso = await api('POST', '/api/hub/sso/exchange', { token: hubToken('hub-biz-42', 'sso', { next: '/orgs/1/alerts' }) }, { auth: false });
+  assert.equal(sso.status, 200); assert.equal(sso.body.orgId, hubOrgId); assert.equal(sso.body.next, '/orgs/1/alerts');
   const ownerMe = await fetch(`${base}/api/auth/me`, { headers: { authorization: `Bearer ${sso.body.token}` } }).then((x) => x.json());
   assert.equal(ownerMe.user.email, 'owner@ujoy.test');
 
   // a live campaign gets paused when the bundle lapses
   const acc = (await query("INSERT INTO ad_accounts (org_id, meta_account_id, sector_template, page_id) VALUES ($1,'act_9','restaurant','pg9') RETURNING id", [hubOrgId])).rows[0];
   await query("INSERT INTO campaigns (org_id, ad_account_id, meta_id, name, status, launched_at) VALUES ($1,$2,'cmp9','C','ACTIVE',now())", [hubOrgId, acc.id]);
-  const lapse = await api('POST', '/api/hub/provision', { ...body, status: 'paused' }, { auth: false, headers: { authorization: `Bearer ${hubToken('hub-biz-42')}` } });
-  assert.equal(lapse.status, 200);
+  const lapse = await api('POST', '/api/hub/provision', { ...body, active: false }, { auth: false, headers: { authorization: `Bearer ${hubToken('hub-biz-42')}` } });
+  assert.equal(lapse.status, 200); assert.equal(lapse.body.status, 'PAUSED');
   assert.equal((await query("SELECT status FROM campaigns WHERE meta_id = 'cmp9'")).rows[0].status, 'PAUSED');
-  const blocked = await api('POST', '/api/hub/sso/exchange', { ticket: hubToken('hub-biz-42') }, { auth: false });
+  const blocked = await api('POST', '/api/hub/sso/exchange', { token: hubToken('hub-biz-42', 'sso') }, { auth: false });
   assert.equal(blocked.status, 403);
 
   await query("INSERT INTO hub_events_outbox (org_id, type, payload) VALUES ($1,'ads.lead_created','{\"hub_business_id\":\"hub-biz-42\"}')", [hubOrgId]);

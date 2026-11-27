@@ -9,14 +9,22 @@
 | MCP connector | `https://<api>/mcp` (Streamable HTTP, stateless) + OAuth 2.1 (dynamic client registration, PKCE, consent page in the app, rotating refresh tokens). 5 read-only tools + `create_campaign_draft` + 4 destructive write tools, each with a title and annotations. No AI image/video tool. | Directory submission: test account and screenshots. Scopes are `ads.read` and `ads.write`. |
 | Google Ads API | OAuth connect, choose customer, every 4h sync campaign metrics into the same dashboard totals (Meta + Google), pause/enable with actions_log | Developer token (Basic access) + OAuth client. Wizard/campaign creation on Google is **not** built yet. |
 
-## Hub contract (what the hub sends)
-`POST /api/hub/provision` with `Authorization: Bearer <HS256 JWT: iss regulars-hub, aud wayne-ads, sub <hub business id>, jti, exp 2m>`
-```json
-{ "business": { "name": "UJOY Bubble Tea", "whatsapp": "9198..." },
-  "owner": { "name": "Owner", "email": "owner@x.in", "phone": "9198..." },
-  "status": "active", "plan": "loopdesk_bundle" }
-```
-`status: "paused"` = bundle lapsed: live campaigns get paused and SSO is refused. Nothing is deleted.
+## Hub contract (verified against regularsplatform's tool side, PR #23)
+The hub is **santwayne/loopdeskai-software**. Wayne Ads uses the same protocol as Regulars, Loyvexa and the other tools:
 
-SSO: hub → `https://<app>/sso?ticket=<same JWT>` → the app calls `/api/hub/sso/exchange`.
-Quick check, as for the other tools: a provision call with no token should answer "Hub token rejected", and `/sso` with no ticket should show "This sign-in link is incomplete".
+Token: HS256 signed with `HUB_SECRET` (hub side: `HUB_SECRET_WAYNE_ADS`), `iss "regulars-hub"`, `aud "wayne-ads"`, `sub <Loopdesk business id>`, `purpose "provision" | "sso"`, `jti` single use, `exp` <= 2 minutes.
+
+`POST /api/hub/provision`, header `Authorization: Bearer <purpose provision>`
+```json
+{ "hubBusinessId": "b_123", "active": true,
+  "business": { "name": "UJOY Bubble Tea", "sector": "RESTAURANT", "country": "IN", "phone": "9198..." },
+  "owner": { "name": "Owner", "email": "owner@x.in", "phone": "9198..." } }
+```
+Returns `{ accountId, status: "ACTIVE" | "PAUSED", data: { ownerEmail, sectorTemplate } }`. `active: false` pauses live campaigns and refuses SSO; nothing is deleted. A token for a different `hubBusinessId` gets 403.
+
+SSO: the hub opens `https://<app>/sso?token=<purpose sso JWT, optional acct, next>`. The page posts `{ token }` to `/api/hub/sso/exchange` and lands on `next` (in-app paths only).
+
+Quick check, as for the other tools: a provision call with no token answers 401 "Missing token", and `/sso` with no token shows "This sign-in link is incomplete".
+
+### Hub side changes still needed (santwayne/loopdeskai-software)
+Add tool `wayne-ads` next to the others in `lib/hub/` (plans/tools list: `WAYNE_ADS_API_URL`, `WAYNE_ADS_APP_URL`, `HUB_SECRET_WAYNE_ADS`), mark the catalog product AUTO, and issue an `rk_live_` events key. These changes are not made yet: this session does not have access to that repo.
