@@ -4,6 +4,7 @@ import { config } from '../config.js';
 // Postgres NUMERIC/BIGINT come back as strings; parse the ones we use for money/metrics.
 pg.types.setTypeParser(1700, (v) => (v === null ? null : Number(v))); // numeric
 pg.types.setTypeParser(20, (v) => (v === null ? null : Number(v)));   // int8
+pg.types.setTypeParser(1082, (v) => v);                                 // date -> 'YYYY-MM-DD' (no timezone shift)
 
 export const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 10 });
 

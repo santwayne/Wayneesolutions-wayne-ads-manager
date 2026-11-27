@@ -4,6 +4,7 @@ import { logger } from '../lib/logger.js';
 import { graphForAdAccount } from '../meta/tokens.js';
 import { crmUpsertLead, wayneRingCall } from './integrations.js';
 import { enqueue } from '../jobs/queues.js';
+import { queueHubEvent } from '../hub/events.js';
 
 let graphFactory = graphForAdAccount;
 export function setLeadsGraphFactory(fn) { graphFactory = fn; }
@@ -87,6 +88,7 @@ export async function processLead({ leadgenId, pageId, formId, orgId = null }) {
   if (orgRows[0]?.ai_call_enabled && !outOfArea && lead.phone && !dup) {
     await enqueue('leads', 'wayne-ring', { leadId: lead.id }, { attempts: 3 });
   }
+  if (!dup) await queueHubEvent(acc.org_id, 'ads.lead_created', { lead_id: lead.id, name: f.name, phone: f.phone, out_of_area: outOfArea, campaign_id: raw.campaign_id });
   if (outOfArea) await enqueue('leads', 'audience-sync', { adAccountId: acc.id }, { jobId: `aud-${acc.id}`, delay: 10 * 60_000 });
   return { lead };
 }
@@ -118,7 +120,9 @@ export async function applyCrmStage({ crmLeadId, stage, contactedAt }) {
   );
   for (const l of rows) {
     if (status === 'junk') await enqueue('leads', 'audience-sync', { adAccountId: null, orgId: l.org_id }, { delay: 10 * 60_000 });
-    // Phase 2: send qualified/won/lost back via Conversions API for CRM (leads/capi.js).
+    // Phase 2: stage back to Meta via Conversions API for CRM.
+    await enqueue('leads', 'capi', { leadId: l.id }, { attempts: 5, backoff: { type: 'exponential', delay: 60_000 } });
+    if (status === 'won') await queueHubEvent(l.org_id, 'ads.customer_won', { lead_id: l.id, crm_lead_id: l.crm_lead_id, campaign_id: l.campaign_id });
   }
   return { updated: rows.length };
 }

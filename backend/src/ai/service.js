@@ -164,3 +164,23 @@ export async function imageTextHeavy({ base64, mediaType }) {
     return Number(out.textCoverage) > 0.25;
   } catch { return null; }
 }
+
+
+/** Google Search copy: 10 headlines (<=30 chars, no "!"), 4 descriptions (<=90), 15 keywords. */
+export async function generateGoogleCopy({ sector, offer, businessName, area }) {
+  const t = getTemplate(sector);
+  const n = businessName || t.label;
+  if (!aiAvailable()) {
+    return {
+      headlines: [offer, n, `${t.label} in ${area || 'Your City'}`, 'Book Your Visit Today', 'Call Now For Details', 'Trusted Local Experts', `${n} Near You`, 'Limited Time Offer'].map((h) => String(h || '').slice(0, 30)),
+      descriptions: [`${offer}. Book today with ${n}.`, `${n}${area ? ` in ${area}` : ''} — friendly team, clear pricing. Call or visit now.`, 'Limited slots this month. Enquire now and our team will call you back.'].map((x) => x.slice(0, 90)),
+      keywords: [],
+    };
+  }
+  const out = await askJson({
+    system: `You write Google Search ads for small Indian local businesses. ${policyBrief(t)}\nGoogle rules: headlines max 30 characters, no exclamation marks in headlines, no ALL CAPS words, no repeated punctuation; descriptions max 90 characters.`,
+    prompt: `Business: ${n} (${t.label}) in ${area || 'their city'}. Offer: ${offer}.
+JSON: {"headlines": [10 strings <=30 chars], "descriptions": [4 strings <=90 chars], "keywords": [15 short search phrases people in India type for this, lowercase]}`,
+  });
+  return { headlines: out.headlines || [], descriptions: out.descriptions || [], keywords: out.keywords || [] };
+}

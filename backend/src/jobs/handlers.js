@@ -10,6 +10,9 @@ import { handleInbound, followupTimeout } from '../whatsapp-mode/conversation.js
 import { executeDeletion } from '../webhooks/meta.js';
 import { notifyOwner } from '../notify/whatsapp.js';
 import { enqueue } from './queues.js';
+import { sendCrmStage } from '../leads/capi.js';
+import { flushHubEvents } from '../hub/events.js';
+import { syncGoogleAccount } from '../google/ads.js';
 
 const activeAccounts = async () => (await query("SELECT * FROM ad_accounts WHERE status = 'active'")).rows;
 const businessOrgs = async (where = '') => (await query(`SELECT * FROM orgs WHERE type = 'business' ${where}`)).rows;
@@ -40,6 +43,9 @@ export const handlers = {
       }
     },
     'data-deletion': async ({ code }) => executeDeletion(code),
+    'google-sync-all': async () => { for (const g of (await query('SELECT id FROM google_accounts')).rows) await enqueue('sync', 'google-sync', { googleAccountId: g.id }); },
+    'google-sync': async ({ googleAccountId }) => syncGoogleAccount(googleAccountId),
+    'hub-flush': async () => flushHubEvents(),
   },
   rules: {
     'rules-all': async () => { for (const a of await activeAccounts()) await enqueue('rules', 'rules-account', { adAccountId: a.id }); },
@@ -52,6 +58,7 @@ export const handlers = {
     'crm-retry': async ({ leadId }) => retryCrm(leadId),
     'wayne-ring': async ({ leadId }) => triggerWayneRing(leadId),
     'poll-forms': async () => pollForms(),
+    capi: async ({ leadId }) => sendCrmStage(leadId),
     'audience-sync': async ({ adAccountId, orgId }) => {
       const ids = adAccountId ? [adAccountId] : (await query('SELECT id FROM ad_accounts WHERE org_id = $1', [orgId])).rows.map((r) => r.id);
       for (const id of ids) await syncExclusionAudience(id);
@@ -77,6 +84,8 @@ export const handlers = {
 /** Repeatable schedules (IST). */
 export const SCHEDULES = [
   { queue: 'sync', name: 'sync-all', pattern: '0 */4 * * *' },
+  { queue: 'sync', name: 'google-sync-all', pattern: '20 */4 * * *' },
+  { queue: 'sync', name: 'hub-flush', pattern: '*/2 * * * *' },
   { queue: 'rules', name: 'rules-all', pattern: '15 * * * *' },
   { queue: 'rules', name: 'followup-check', pattern: '*/5 * * * *' },
   { queue: 'leads', name: 'poll-forms', pattern: '*/15 * * * *' },

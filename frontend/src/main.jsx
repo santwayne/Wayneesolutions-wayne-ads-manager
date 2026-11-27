@@ -14,6 +14,9 @@ import Leads from './pages/Leads.jsx';
 import ActionsLog from './pages/ActionsLog.jsx';
 import Wallet from './pages/Wallet.jsx';
 import Settings from './pages/Settings.jsx';
+import Sso from './pages/Sso.jsx';
+import OAuthConsent from './pages/OAuthConsent.jsx';
+import Signup from './pages/Signup.jsx';
 
 const Private = ({ children }) => (getToken() ? children : <Navigate to="/login" replace />);
 
@@ -21,6 +24,9 @@ createRoot(document.getElementById('root')).render(
   <BrowserRouter>
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<Signup />} />
+      <Route path="/sso" element={<Sso />} />
+      <Route path="/oauth/consent" element={<OAuthConsent />} />
       <Route element={<Private><Layout /></Private>}>
         <Route path="/" element={<Agency />} />
         <Route path="/orgs/:orgId" element={<Dashboard />} />

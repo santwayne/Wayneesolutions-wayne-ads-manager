@@ -13,11 +13,13 @@
     "seed": "node src/db/seed.js",
     "dev": "node --watch src/server.js",
     "test": "NODE_ENV=test node --test --test-concurrency=1 test/*.test.js",
-    "verify:meta": "node scripts/verify-meta.js"
+    "verify:meta": "node scripts/verify-meta.js",
+    "seed:review": "node scripts/seed-review-account.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.14.0",
     "@aws-sdk/client-kms": "^3.1178.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "bcryptjs": "^3.0.3",
     "bullmq": "^6.7.10",
     "cors": "^2.8.6",
