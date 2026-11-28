@@ -13,7 +13,8 @@ const base = {
   targetCpl: 250,
   specialAdCategories: [],
   defaultGoal: 'lead_form',
-  allowedGoals: ['lead_form', 'whatsapp', 'call', 'website', 'store_visit'],
+  // null = every campaign template in wizard/goals.js. A sector can narrow this to a list of keys.
+  allowedGoals: null,
   formQuestions: [],
   qualifyingQuestion: { key: 'kab_shuru', label: 'Aap kab tak shuru karna chahte hain?', options: ['Is hafte', 'Is mahine', '1-3 mahine mein', 'Abhi sirf jaankari'] },
   blockedPhrases: [],

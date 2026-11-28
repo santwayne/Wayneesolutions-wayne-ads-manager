@@ -6,7 +6,7 @@ import { badRequest } from '../lib/errors.js';
 import { requireOrg } from '../lib/auth.js';
 import { ah, parse, actorOf } from './util.js';
 import { listTemplates, getTemplate } from '../wizard/templates/index.js';
-import { GOALS } from '../wizard/goals.js';
+import { OBJECTIVE_GROUPS, listGoals } from '../wizard/goals.js';
 import { createDraft, updateDraft, validate, createOnMeta, uploadMedia, getDraftContext } from '../wizard/service.js';
 import { analyzeImage } from '../wizard/media.js';
 import { generateCopy, imageTextHeavy, strengthenOffer } from '../ai/service.js';
@@ -15,7 +15,7 @@ import { listStudioVideos } from '../integrations/videoStudio.js';
 
 export const wizard = Router();
 
-wizard.get('/wizard/templates', (_req, res) => res.json({ templates: listTemplates(), goals: Object.entries(GOALS).map(([key, g]) => ({ key, label: g.label })) }));
+wizard.get('/wizard/templates', (_req, res) => res.json({ templates: listTemplates(), groups: OBJECTIVE_GROUPS, goals: listGoals() }));
 
 wizard.post('/orgs/:orgId/drafts', requireOrg('manager'), ah(async (req, res) => {
   const b = parse(z.object({ adAccountId: z.number().int(), data: z.record(z.any()).default({}) }), req.body);

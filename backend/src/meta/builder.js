@@ -50,7 +50,7 @@ export function buildTargeting(draft, { specialAdCategories = [], excludedAudien
 }
 
 export function buildCampaign(draft, goal, { specialAdCategories = [], name }) {
-  return {
+  const c = {
     name: name || `Wayne | ${draft.sector} | ${new Date().toISOString().slice(0, 10)}`,
     objective: goal.objective,
     status: 'PAUSED',
@@ -58,6 +58,26 @@ export function buildCampaign(draft, goal, { specialAdCategories = [], name }) {
     // One campaign, one ad set (spec rule 5); budget lives on the ad set.
     is_adset_budget_sharing_enabled: false,
   };
+  // Catalog sales: the catalog is set on the campaign, the product set on the ad set.
+  if (goal.promoted === 'catalog') c.promoted_object = { product_catalog_id: draft.catalogId };
+  return c;
+}
+
+/** Ad set promoted_object for each template's `promoted` shape. */
+export function buildPromotedObject(draft, goal, { pageId, whatsappPhone, pixelId }) {
+  const event = draft.pixelEvent || goal.pixelEvent || 'LEAD';
+  switch (goal.promoted) {
+    case 'page_whatsapp': return { page_id: pageId, whatsapp_phone_number: whatsappPhone };
+    case 'pixel': return { pixel_id: pixelId, custom_event_type: event };
+    case 'app': {
+      const o = { application_id: draft.appId, object_store_url: draft.appStoreUrl };
+      if (['APP_EVENTS', 'VALUE'].includes(goal.optimizationGoal)) o.custom_event_type = event;
+      return o;
+    }
+    case 'catalog': return { product_set_id: draft.productSetId, pixel_id: pixelId, custom_event_type: event };
+    case 'event': return { page_id: pageId, event_id: draft.eventId };
+    default: return { page_id: pageId };
+  }
 }
 
 export function buildAdSet(draft, goal, { campaignId, pageId, whatsappPhone, pixelId, targeting, name }) {
@@ -72,20 +92,7 @@ export function buildAdSet(draft, goal, { campaignId, pageId, whatsappPhone, pix
     targeting,
   };
   if (goal.destinationType) p.destination_type = goal.destinationType;
-  switch (draft.goal) {
-    case 'lead_form':
-    case 'call':
-      p.promoted_object = { page_id: pageId };
-      break;
-    case 'whatsapp':
-      p.promoted_object = { page_id: pageId, whatsapp_phone_number: whatsappPhone };
-      break;
-    case 'website':
-      p.promoted_object = { pixel_id: pixelId, custom_event_type: draft.pixelEvent || 'LEAD' };
-      break;
-    default:
-      p.promoted_object = { page_id: pageId };
-  }
+  p.promoted_object = buildPromotedObject(draft, goal, { pageId, whatsappPhone, pixelId });
   return p;
 }
 
@@ -122,32 +129,57 @@ export function buildLeadForm(draft, { privacyPolicyUrl, phone, whatsappPhone, n
 }
 
 export function buildCreative(draft, goal, { media, primaryText, headline, pageId, instagramId, leadFormId, phone, name }) {
-  const cta = { type: goal.cta };
-  let link = draft.websiteUrl || `https://facebook.com/${pageId}`;
-  if (draft.goal === 'lead_form') cta.value = { lead_gen_form_id: leadFormId };
-  if (draft.goal === 'whatsapp') { cta.value = { app_destination: 'WHATSAPP' }; link = 'https://api.whatsapp.com/send'; }
-  if (draft.goal === 'call') cta.value = { link: `tel:${phone}` };
-  if (draft.goal === 'website') cta.value = { link };
+  const creativeName = name || `Wayne creative ${Date.now()}`;
+  // Boost an existing Page post: the creative is just the post.
+  if (goal.creative === 'post') return { name: creativeName, object_story_id: `${pageId}_${draft.postId}` };
 
   const story = { page_id: pageId };
   if (instagramId) story.instagram_user_id = instagramId;
+
+  const cta = { type: goal.cta };
+  let link = draft.websiteUrl || `https://facebook.com/${pageId}`;
+  switch (goal.creative) {
+    case 'lead_form': cta.value = { lead_gen_form_id: leadFormId }; break;
+    case 'whatsapp': cta.value = { app_destination: 'WHATSAPP' }; link = 'https://api.whatsapp.com/send'; break;
+    case 'messenger': cta.value = { app_destination: 'MESSENGER' }; link = `https://facebook.com/${pageId}`; break;
+    case 'instagram_dm': cta.value = { app_destination: 'INSTAGRAM_DIRECT' }; link = 'https://www.instagram.com/'; break;
+    case 'call': cta.value = { link: `tel:${phone}` }; break;
+    case 'app': link = draft.appStoreUrl; cta.value = { application: draft.appId, link }; break;
+    case 'page_like': link = `https://facebook.com/${pageId}`; cta.value = { page: pageId }; break;
+    case 'event': link = `https://www.facebook.com/events/${draft.eventId}`; cta.value = { link }; break;
+    case 'ig_profile': link = 'https://www.instagram.com/'; break;
+    case 'catalog':
+      // Dynamic (catalog) ad: Meta fills image/name/price per product.
+      story.template_data = { message: primaryText, name: headline || '{{product.name}}', link, call_to_action: { type: goal.cta } };
+      return { name: creativeName, object_story_spec: story, product_set_id: draft.productSetId };
+    default: cta.value = { link };
+  }
+
   if (media.type === 'video') {
+    const v = { ...(cta.value || {}) };
+    if (!v.link && !['lead_form', 'whatsapp', 'messenger', 'instagram_dm'].includes(goal.creative)) v.link = link;
     story.video_data = {
       video_id: media.videoId,
       ...(media.thumbnailHash ? { image_hash: media.thumbnailHash } : { image_url: media.thumbnailUrl }),
       message: primaryText,
       title: headline,
-      call_to_action: { ...cta, value: { ...(cta.value || {}), ...(draft.goal === 'website' || draft.goal === 'store_visit' ? { link } : {}) } },
+      call_to_action: { ...cta, value: v },
     };
   } else {
     story.link_data = { image_hash: media.imageHash, message: primaryText, name: headline, link, call_to_action: cta };
   }
-  return { name: name || `Wayne creative ${Date.now()}`, object_story_spec: story };
+  return { name: creativeName, object_story_spec: story };
 }
 
 /** 3–5 ads: pair each media with a text/headline (round robin). */
-export function planAds(draft) {
-  const media = draft.media.slice(0, 5);
+export function planAds(draft, goal) {
+  // Post boost / catalog ads: a single ad, no uploaded media.
+  if (goal && ['post', 'catalog'].includes(goal.creative)) {
+    return [{ media: null, primaryText: draft.primaryTexts?.[0] || null, headline: draft.headlines?.[0] || null }];
+  }
+  // Video-optimised goals only run the videos.
+  const pool = goal?.needsVideo ? draft.media.filter((m) => m.type === 'video') : draft.media;
+  const media = pool.slice(0, 5);
   const texts = draft.primaryTexts.slice(0, 3);
   const heads = draft.headlines.slice(0, 3);
   const n = Math.min(5, Math.max(media.length, Math.min(3, texts.length)));

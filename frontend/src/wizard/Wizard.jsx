@@ -6,7 +6,8 @@ import GoogleCard from './GoogleCard.jsx';
 import MediaPicker from './MediaPicker.jsx';
 
 const STEPS = ['Kya chahiye', 'Business type', 'Kahan aur kisko', 'Budget', 'Offer aur ad', 'Lead form', 'Review'];
-const GOAL_HELP = { lead_form: 'Log form mein naam aur number bharenge', whatsapp: 'Log seedha aapko WhatsApp karenge', call: 'Log ad se seedha call karenge', website: 'Log website pe book/kharid karenge', store_visit: 'Aas paas ke log dukaan pe aayenge' };
+const CTA_LABEL = { WHATSAPP_MESSAGE: 'WhatsApp', CALL_NOW: 'Call now', SIGN_UP: 'Sign up', SHOP_NOW: 'Shop now', MESSAGE_PAGE: 'Send message', INSTAGRAM_MESSAGE: 'Send message', INSTALL_MOBILE_APP: 'Install now', USE_MOBILE_APP: 'Use app', LIKE_PAGE: 'Like page', GET_DIRECTIONS: 'Get directions', EVENT_RSVP: 'Interested', VIEW_INSTAGRAM_PROFILE: 'View profile' };
+const PIXEL_EVENTS = ['LEAD', 'COMPLETE_REGISTRATION', 'CONTACT', 'SCHEDULE', 'SUBMIT_APPLICATION', 'CONTENT_VIEW', 'ADD_TO_CART', 'INITIATED_CHECKOUT', 'PURCHASE', 'SUBSCRIBE', 'START_TRIAL'];
 
 function Checklist({ checks, onFix }) {
   if (!checks) return null;
@@ -44,7 +45,10 @@ export default function Wizard() {
   // Smart defaults: show the template defaults as already chosen (user can still change).
   const d = { ...d0, goal: d0.goal || v?.draft?.goal, sector: d0.sector || v?.draft?.sector };
   const tpl = useMemo(() => meta?.templates.find((t) => t.key === d.sector), [meta, d.sector]);
-  const steps = d.goal === 'lead_form' ? STEPS : STEPS.filter((s) => s !== 'Lead form');
+  const goal = meta?.goals.find((g) => g.key === d.goal);
+  const [group, setGroup] = useState(null);
+  const activeGroup = group || goal?.group || 'leads';
+  const steps = goal?.needs?.leadForm ? STEPS : STEPS.filter((s) => s !== 'Lead form');
   const name = steps[step];
 
   const start = async (adAccountId) => setDraft(await api('POST', `/orgs/${orgId}/drafts`, { adAccountId, data: {} }));
@@ -98,13 +102,38 @@ export default function Wizard() {
 
       {name === 'Kya chahiye' && (
         <>
-          <p className="sub">Aapko kya chahiye?</p>
-          <div className="choices">{meta.goals.map((g) => (
-            <button key={g.key} className={`choice ${d.goal === g.key ? 'on' : ''}`} onClick={() => patch({ goal: g.key })}>
-              <b>{g.label}</b><div className="muted">{GOAL_HELP[g.key]}</div></button>))}
+          <p className="sub">Aapko kya chahiye? Meta Ads Manager ke saare setup yahan hain — pehle objective chuno, phir template.</p>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+            {meta.groups.map((gr) => (
+              <button key={gr.key} className={activeGroup === gr.key ? 'primary' : ''} title={gr.help} onClick={() => setGroup(gr.key)}>
+                {gr.label} <span className="muted">({meta.goals.filter((g) => g.group === gr.key).length})</span>
+              </button>))}
           </div>
-          {d.goal === 'website' && <><label>Website link (https://)</label><input defaultValue={d.websiteUrl || ''} onBlur={(e) => patch({ websiteUrl: e.target.value })} /></>}
-          {d.goal === 'call' && <><label>Phone number (+91…)</label><input defaultValue={d.phone || ''} onBlur={(e) => patch({ phone: e.target.value })} /></>}
+          <p className="muted">{meta.groups.find((gr) => gr.key === activeGroup)?.help}</p>
+          <div className="choices">{meta.goals.filter((g) => g.group === activeGroup).map((g) => (
+            <button key={g.key} className={`choice ${d.goal === g.key ? 'on' : ''}`} onClick={() => patch({ goal: g.key, ...(g.pixelEvent ? { pixelEvent: g.pixelEvent } : {}) })}>
+              <b>{g.label}</b><div className="muted">{g.help}</div>
+              <div className="muted" style={{ marginTop: 4 }}>📍 {g.location} · 🎯 {g.result}</div>
+              {g.verify && <div className="pill yellow" style={{ marginTop: 6 }}>Naya — pehle test karo</div>}
+            </button>))}
+          </div>
+          {goal?.needs?.website && <><label>Website link (https://)</label><input defaultValue={d.websiteUrl || ''} onBlur={(e) => patch({ websiteUrl: e.target.value })} /></>}
+          {goal?.needs?.pixel && <><label>Pixel event (kis action pe optimise karein)</label>
+            <select value={d.pixelEvent || goal.pixelEvent || 'LEAD'} onChange={(e) => patch({ pixelEvent: e.target.value })}>{PIXEL_EVENTS.map((x) => <option key={x}>{x}</option>)}</select></>}
+          {goal?.needs?.phone && <><label>Phone number (+91…)</label><input defaultValue={d.phone || ''} onBlur={(e) => patch({ phone: e.target.value })} /></>}
+          {goal?.needs?.app && <div className="grid g2">
+            <div><label>Meta App ID</label><input defaultValue={d.appId || ''} onBlur={(e) => patch({ appId: e.target.value.trim() })} /></div>
+            <div><label>Play Store / App Store link</label><input defaultValue={d.appStoreUrl || ''} placeholder="https://play.google.com/store/apps/details?id=…" onBlur={(e) => patch({ appStoreUrl: e.target.value.trim() })} /></div>
+          </div>}
+          {goal?.needs?.app && goal.pixelEvent && <><label>App event</label>
+            <select value={d.pixelEvent || goal.pixelEvent} onChange={(e) => patch({ pixelEvent: e.target.value })}>{PIXEL_EVENTS.map((x) => <option key={x}>{x}</option>)}</select></>}
+          {goal?.needs?.post && <><label>Boost karne wali post ka ID</label><input defaultValue={d.postId || ''} placeholder="Post link ke aakhri number" onBlur={(e) => patch({ postId: e.target.value.trim() })} /></>}
+          {goal?.needs?.event && <><label>Facebook event ID</label><input defaultValue={d.eventId || ''} onBlur={(e) => patch({ eventId: e.target.value.trim() })} /></>}
+          {goal?.needs?.catalog && <div className="grid g2">
+            <div><label>Catalog ID (Commerce Manager)</label><input defaultValue={d.catalogId || ''} onBlur={(e) => patch({ catalogId: e.target.value.trim() })} /></div>
+            <div><label>Product set ID</label><input defaultValue={d.productSetId || ''} onBlur={(e) => patch({ productSetId: e.target.value.trim() })} /></div>
+          </div>}
+          <Checklist checks={stepChecks(['unknown_goal', 'no_website', 'no_phone', 'no_app', 'no_app_store_url', 'no_post', 'no_event', 'no_catalog', 'no_product_set', 'no_instagram', 'no_whatsapp', 'no_pixel', 'crm_signal', 'verify_template'])} onFix={patch} />
         </>
       )}
 
@@ -163,7 +192,7 @@ export default function Wizard() {
             </div>
           )}
           <MediaPicker orgId={orgId} draft={draft} onMedia={async (media) => { setDraft((x) => ({ ...x, data: { ...x.data, media } })); setV(await api('GET', `/orgs/${orgId}/drafts/${draft.id}/validate?reach=0`)); }} />
-          <Checklist checks={stepChecks(['no_offer', 'weak_offer', 'no_text', 'no_headline', 'blocked_phrase', 'personal_attribute', 'before_after', 'superlative', 'no_media', 'few_media', 'aspect', 'blurry', 'text_heavy', 'low_res', 'video_long', 'video_short', 'video_thumb'])} onFix={patch} />
+          <Checklist checks={stepChecks(['no_offer', 'weak_offer', 'no_text', 'no_headline', 'blocked_phrase', 'personal_attribute', 'before_after', 'superlative', 'no_media', 'few_media', 'aspect', 'blurry', 'text_heavy', 'low_res', 'video_long', 'video_short', 'video_thumb', 'no_video'])} onFix={patch} />
         </>
       )}
 
@@ -189,15 +218,15 @@ export default function Wizard() {
           <div className="preview">
             {(d.media?.[0]?.url || d.media?.[0]?.thumbnailUrl) && <img src={d.media[0].type === 'video' ? d.media[0].thumbnailUrl : d.media[0].url} alt="preview" />}
             <div className="txt">{d.primaryTexts?.[0] || 'Ad text chuno'}</div>
-            <div className="bar"><b>{d.headlines?.[0]}</b><span className="btn">{d.goal === 'whatsapp' ? 'WhatsApp' : d.goal === 'call' ? 'Call now' : 'Sign up'}</span></div>
+            <div className="bar"><b>{d.headlines?.[0]}</b><span className="btn">{CTA_LABEL[goal?.cta] || 'Learn more'}</span></div>
           </div>
           <div>
             <div className="card">
-              <div>🎯 {meta.goals.find((g) => g.key === v?.draft.goal)?.label}</div>
+              <div>🎯 {meta.groups.find((gr) => gr.key === goal?.group)?.label} → {goal?.label}</div>
               <div>🏷️ {tpl?.label}</div>
               <div>📍 {v?.draft.radiusKm} km · age {v?.draft.ageMin}–{v?.draft.ageMax}</div>
               <div>💰 {inr(v?.estimate.dailyBudget)}/din (~{inr(v?.estimate.monthlyBudget)}/mahina)</div>
-              <div>🖼️ {Math.min(5, d.media?.length || 0)} ads (creative test)</div>
+              <div>🖼️ {goal?.needs?.post ? 'Purani post boost (1 ad)' : goal?.needs?.catalog ? 'Catalog ad (1 ad)' : `${Math.min(5, d.media?.length || 0)} ads (creative test)`}</div>
             </div>
             <h2>Checklist</h2>
             <Checklist checks={v?.checks} onFix={patch} />

@@ -10,6 +10,7 @@ Spec: *Wayne Ads Manager – Developer Spec* (27 Nov 2026). **Phase 1** covers a
 |---|---|
 | 7-screen guided wizard + smart defaults + checklist with fix buttons | `backend/src/wizard/*`, `frontend/src/wizard/Wizard.jsx` |
 | 8 sector templates (IVF, IELTS, restaurant, furniture, salon/gym, car, real estate, other) | `backend/src/wizard/templates/index.js` |
+| 49 campaign templates = every Meta Ads Manager setup (6 objectives × conversion location × performance goal) | `backend/src/wizard/goals.js` |
 | Policy pre-check (IVF personal attributes, visa guarantee, before/after, special ad categories) | `backend/src/wizard/policy.js` |
 | Always PAUSED on create, launch only by a human (app click / WhatsApp "Haan") | `backend/src/meta/graph.js`, `backend/src/actions/service.js` |
 | Lead quality fixes (location expansion OFF, higher-intent form, pincode question, qualifying question, exclusion audience) | `backend/src/meta/builder.js`, `backend/src/leads/pipeline.js` |
