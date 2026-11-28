@@ -6,7 +6,7 @@ import './styles.css';
 import { getToken } from './api.js';
 import Login from './pages/Login.jsx';
 import Layout from './components/Layout.jsx';
-import Agency from './pages/Agency.jsx';
+import Home from './pages/Home.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Wizard from './wizard/Wizard.jsx';
 import Alerts from './pages/Alerts.jsx';
@@ -35,7 +35,7 @@ createRoot(document.getElementById('root')).render(
       <Route path="/sso" element={<Sso />} />
       <Route path="/oauth/consent" element={<OAuthConsent />} />
       <Route element={<Private><Layout /></Private>}>
-        <Route path="/" element={<Agency />} />
+        <Route path="/" element={<Home />} />
         <Route path="/orgs/:orgId" element={<Dashboard />} />
         <Route path="/orgs/:orgId/new" element={<Wizard />} />
         <Route path="/orgs/:orgId/alerts" element={<Alerts />} />

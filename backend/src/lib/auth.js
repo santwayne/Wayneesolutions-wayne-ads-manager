@@ -42,3 +42,21 @@ export const requireOrg = (min = 'viewer') => async (req, _res, next) => {
 };
 
 export const roleAtLeast = (role, min) => (RANK[role] || 0) >= RANK[min];
+
+/**
+ * Super admin = a member of an agency org (Wayne team). Only they see the
+ * client list and add clients. A client's own users (owner/manager/viewer of
+ * their business) only ever see their own business panel.
+ */
+export async function isAgencyMember(userId) {
+  const { rows } = await query(
+    "SELECT 1 FROM memberships m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = $1 AND o.type = 'agency' LIMIT 1", [userId]);
+  return Boolean(rows[0]);
+}
+
+export async function requireAgency(req, _res, next) {
+  try {
+    if (!(await isAgencyMember(req.user.id))) return next(forbidden('Ye page sirf Wayne team ke liye hai'));
+    return next();
+  } catch (e) { return next(e); }
+}
