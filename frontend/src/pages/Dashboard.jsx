@@ -12,8 +12,8 @@ function Bars({ daily }) {
         const h = (d.spend / max) * 90;
         return (
           <g key={d.date}>
-            <rect x={i * 30 + 6} y={100 - h} width="18" height={h} rx="3" fill="#1d4ed8"><title>{`${String(d.date).slice(0, 10)}: ${inr(d.spend)}, ${d.leads} leads`}</title></rect>
-            <text x={i * 30 + 15} y="115" fontSize="8" textAnchor="middle" fill="#667085">{String(d.date).slice(8, 10)}</text>
+            <rect x={i * 30 + 6} y={100 - h} width="18" height={h} rx="3" fill="#b8142f"><title>{`${String(d.date).slice(0, 10)}: ${inr(d.spend)}, ${d.leads} leads`}</title></rect>
+            <text x={i * 30 + 15} y="115" fontSize="8" textAnchor="middle" fill="#6b7280">{String(d.date).slice(8, 10)}</text>
           </g>
         );
       })}
@@ -45,7 +45,7 @@ export default function Dashboard() {
             <option value={7}>Pichle 7 din</option><option value={30}>Pichle 30 din</option>
           </select>
           <button onClick={undo}>↩️ Last change undo</button>
-          <Link className="btn primary" style={{ background: '#1d4ed8', color: '#fff' }} to={`/orgs/${orgId}/new`}>+ Naya campaign</Link>
+          <Link className="btn primary" style={{ background: '#b8142f', color: '#fff' }} to={`/orgs/${orgId}/new`}>+ Naya campaign</Link>
         </div>
       </div>
       <div className="money">{days === 7 ? 'Is hafte' : `Pichle ${days} din`} {moneyLine(t) || '₹0 lage'}.</div>

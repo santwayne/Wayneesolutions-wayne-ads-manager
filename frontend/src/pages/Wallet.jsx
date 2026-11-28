@@ -36,7 +36,7 @@ export default function Wallet() {
       {err && <div className="err">{err}</div>}
       <h2>Ledger</h2>
       <table><thead><tr><th>Kab</th><th>Type</th><th>Amount</th><th>Balance</th><th>Ref</th></tr></thead>
-        <tbody>{d.ledger.map((l) => <tr key={l.id}><td>{new Date(l.created_at).toLocaleString('en-IN')}</td><td>{l.kind}</td><td style={{ color: l.amount < 0 ? '#c53030' : '#12805c' }}>{inr(l.amount)}</td><td>{inr(l.balance_after)}</td><td>{l.ref}</td></tr>)}</tbody></table>
+        <tbody>{d.ledger.map((l) => <tr key={l.id}><td>{new Date(l.created_at).toLocaleString('en-IN')}</td><td>{l.kind}</td><td style={{ color: l.amount < 0 ? '#b91c1c' : '#12805c' }}>{inr(l.amount)}</td><td>{inr(l.balance_after)}</td><td>{l.ref}</td></tr>)}</tbody></table>
       <h2>Invoices (GST)</h2>
       <table><thead><tr><th>No.</th><th>Mahina</th><th>Ad spend</th><th>Service fee</th><th>GST</th><th>Total</th></tr></thead>
         <tbody>{d.invoices.map((i) => <tr key={i.id}><td>{i.number}</td><td>{String(i.month).slice(0, 7)}</td><td>{inr(i.ad_spend)}</td><td>{inr(i.service_fee)}</td><td>{inr(i.gst)}</td><td><b>{inr(i.total)}</b> {i.status === 'paid' ? <span className="pill green">paid</span> : <button onClick={() => payOnline('invoice', { invoiceId: i.id })}>Pay</button>}</td></tr>)}</tbody></table>

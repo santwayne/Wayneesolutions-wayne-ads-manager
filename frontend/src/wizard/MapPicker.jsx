@@ -17,7 +17,7 @@ export default function MapPicker({ value, radiusKm, onPick }) {
     <MapContainer center={center} zoom={11} style={{ height: 340, borderRadius: 12 }} scrollWheelZoom>
       <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       <Clicker onPick={onPick} />
-      {value?.lat && <><Marker position={center} icon={pin} /><Circle center={center} radius={radiusKm * 1000} pathOptions={{ color: '#1d4ed8' }} /></>}
+      {value?.lat && <><Marker position={center} icon={pin} /><Circle center={center} radius={radiusKm * 1000} pathOptions={{ color: '#b8142f' }} /></>}
     </MapContainer>
   );
 }
