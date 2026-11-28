@@ -14,7 +14,7 @@ function Delta({ now, prev, lowerIsBetter }) {
   const pct = Math.round(((now - prev) / prev) * 100);
   if (!pct) return <span className="muted"> (same)</span>;
   const good = lowerIsBetter ? pct < 0 : pct > 0;
-  return <span style={{ color: good ? '#12805c' : '#c53030', fontSize: 13 }}> {pct > 0 ? '▲' : '▼'} {Math.abs(pct)}%</span>;
+  return <span style={{ color: good ? '#12805c' : '#b91c1c', fontSize: 13 }}> {pct > 0 ? '▲' : '▼'} {Math.abs(pct)}%</span>;
 }
 
 /** Shared by the in-app Reports page and the public share page (/r/:token). */
@@ -43,8 +43,8 @@ export default function ReportView({ r }) {
       <div className="card">{r.daily.length ? (
         <svg viewBox={`0 0 ${r.daily.length * 24} 120`} style={{ width: '100%', height: 150 }} role="img" aria-label="Roz ka kharcha">
           {r.daily.map((d, i) => { const h = (d.spend / max) * 92; return (
-            <g key={d.date}><rect x={i * 24 + 4} y={100 - h} width="16" height={h} rx="3" fill="#1d4ed8"><title>{`${d.date}: ${inr(d.spend)}, ${d.leads} leads`}</title></rect>
-              <text x={i * 24 + 12} y="114" fontSize="8" textAnchor="middle" fill="#667085">{String(d.date).slice(8, 10)}</text></g>); })}
+            <g key={d.date}><rect x={i * 24 + 4} y={100 - h} width="16" height={h} rx="3" fill="#b8142f"><title>{`${d.date}: ${inr(d.spend)}, ${d.leads} leads`}</title></rect>
+              <text x={i * 24 + 12} y="114" fontSize="8" textAnchor="middle" fill="#6b7280">{String(d.date).slice(8, 10)}</text></g>); })}
         </svg>) : <p className="muted">Is mahine abhi data nahi.</p>}</div>
       <Table title="Campaigns" rows={r.campaigns} />
       <Table title="Sabse achhe ads (sasti lead)" rows={r.bestAds} />
