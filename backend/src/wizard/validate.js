@@ -1,5 +1,5 @@
 import { getTemplate } from './templates/index.js';
-import { resolveGoal } from './goals.js';
+import { GOALS, resolveGoal } from './goals.js';
 import { checkCopy, applySpecialCategoryRules, SAC_RULES } from './policy.js';
 
 const ASPECTS = { '1:1': 1, '4:5': 0.8, '9:16': 0.5625 };
@@ -53,12 +53,19 @@ export function validateDraft(input, context = {}) {
     headlines: (input.headlines || []).filter(Boolean),
     media: input.media || [],
     websiteUrl: input.websiteUrl || null,
-    pixelEvent: input.pixelEvent || 'LEAD',
+    pixelEvent: input.pixelEvent || GOALS[input.goal || template.defaultGoal]?.pixelEvent || 'LEAD',
     phone: input.phone || null,
     formQuestions: input.formQuestions || template.formQuestions,
     qualifyingQuestion: input.qualifyingQuestion || template.qualifyingQuestion,
     privacyPolicyUrl: input.privacyPolicyUrl || context.org?.privacy_policy_url || null,
     name: input.name || null,
+    // Extra inputs some campaign templates need (see wizard/goals.js needs*).
+    appId: input.appId || null,
+    appStoreUrl: input.appStoreUrl || null,
+    postId: input.postId || null,
+    eventId: input.eventId || null,
+    catalogId: input.catalogId || null,
+    productSetId: input.productSetId || null,
   };
   const checks = [];
   const add = (c) => checks.push(c);
@@ -70,8 +77,14 @@ export function validateDraft(input, context = {}) {
     add({ code: 'special_category', level: 'info', message: `${template.label}: Meta ki special ad category — age ${SAC_RULES.ageMin}-${SAC_RULES.ageMax}, gender sab, radius kam se kam ${SAC_RULES.minRadiusKm} km khud set kiya` });
   }
 
+  if (!GOALS[draft.goal]) {
+    add({ code: 'unknown_goal', level: 'block', message: 'Ye campaign template nahi mila — dobara chuno' });
+    draft.goal = template.defaultGoal;
+  }
   const goal = resolveGoal(draft.goal, { pixelEvent: draft.pixelEvent });
-  if (!template.allowedGoals.includes(draft.goal)) add({ code: 'goal_not_allowed', level: 'block', message: 'Ye goal is business type ke liye available nahi hai' });
+  if (template.allowedGoals && !template.allowedGoals.includes(draft.goal)) add({ code: 'goal_not_allowed', level: 'block', message: 'Ye goal is business type ke liye available nahi hai' });
+  const boostsPost = goal.creative === 'post';
+  const fromCatalog = goal.creative === 'catalog';
 
   // Screen 3: location & audience
   if (!draft.location?.lat || !draft.location?.lng) add({ code: 'no_location', level: 'block', message: 'Map pe business ka pin lagao', fix: 'Pin lagao' });
@@ -95,16 +108,17 @@ export function validateDraft(input, context = {}) {
   }
 
   // Screen 5: offer & creatives
-  if (!draft.offer.trim()) add({ code: 'no_offer', level: 'block', message: 'Offer 1 line mein likho', fix: template.offerIdeas[0] ? `Jaise: "${template.offerIdeas[0]}"` : undefined });
+  if (boostsPost) { /* existing post: offer, text and media come from the post */ } else if (!draft.offer.trim()) add({ code: 'no_offer', level: 'block', message: 'Offer 1 line mein likho', fix: template.offerIdeas[0] ? `Jaise: "${template.offerIdeas[0]}"` : undefined });
   else if (!/(free|off|%|discount|₹|rs\.?|offer|deadline|aaj|today|last|limited|only|sirf|muft|trial|demo)/i.test(draft.offer)) {
     add({ code: 'weak_offer', level: 'warn', message: 'Offer kamzor lag raha hai', fix: 'Offer mein free/discount/deadline jodo' });
   }
-  if (!draft.primaryTexts.length) add({ code: 'no_text', level: 'block', message: 'Kam se kam 1 ad text chuno (3 best)', fix: 'AI se 5 text banwao' });
-  if (!draft.headlines.length) add({ code: 'no_headline', level: 'block', message: 'Kam se kam 1 headline chuno' });
+  if (!boostsPost && !draft.primaryTexts.length) add({ code: 'no_text', level: 'block', message: 'Kam se kam 1 ad text chuno (3 best)', fix: 'AI se 5 text banwao' });
+  if (!boostsPost && !draft.headlines.length) add({ code: 'no_headline', level: 'block', message: 'Kam se kam 1 headline chuno' });
   [...draft.primaryTexts, ...draft.headlines].forEach((txt, i) => {
     for (const issue of checkCopy(txt, template)) add({ ...issue, textIndex: i, text: txt });
   });
-  for (const m of checkMedia(draft.media)) add(m);
+  if (!boostsPost && !fromCatalog) for (const m of checkMedia(draft.media)) add(m);
+  if (goal.needsVideo && !draft.media.some((m) => m.type === 'video')) add({ code: 'no_video', level: 'block', message: 'Is template ke liye kam se kam 1 video chahiye', fix: 'Video upload karo ya AI Video Studio se lao' });
 
   // Destination needs
   if (goal.needsLeadForm && !draft.privacyPolicyUrl) add({ code: 'no_privacy_policy', level: 'block', message: 'Lead form ke liye client ki privacy policy link zaroori hai (Meta rule)', fix: 'Privacy policy URL daalo' });
@@ -112,13 +126,26 @@ export function validateDraft(input, context = {}) {
   if (goal.needsPhone && !draft.phone) add({ code: 'no_phone', level: 'block', message: 'Call ke liye phone number daalo' });
   if (goal.needsWebsite && !/^https:\/\//.test(draft.websiteUrl || '')) add({ code: 'no_website', level: 'block', message: 'Website ka https link daalo' });
   if (goal.needsPixel && !context.adAccount?.pixel_id) add({ code: 'no_pixel', level: 'warn', message: 'Pixel/Conversions API nahi laga — Meta ko pata nahi chalega kaun book kar raha hai', fix: 'Website pe Pixel lagao (developer help)' });
+  if (goal.needsApp) {
+    if (!/^\d+$/.test(draft.appId || '')) add({ code: 'no_app', level: 'block', message: 'Meta App ID daalo (developers.facebook.com pe registered app)', fix: 'App ID sirf number hota hai' });
+    if (!/^https:\/\/(play\.google\.com|apps\.apple\.com|itunes\.apple\.com)\//.test(draft.appStoreUrl || '')) add({ code: 'no_app_store_url', level: 'block', message: 'Play Store ya App Store ka link daalo' });
+  }
+  if (goal.needsPost && !/^\d+$/.test(draft.postId || '')) add({ code: 'no_post', level: 'block', message: 'Kaun si post boost karni hai? Post ID daalo', fix: 'Post ID = post link ke aakhri number' });
+  if (goal.needsEvent && !/^\d+$/.test(draft.eventId || '')) add({ code: 'no_event', level: 'block', message: 'Facebook event ID daalo', fix: 'Event link ke number' });
+  if (goal.needsCatalog) {
+    if (!/^\d+$/.test(draft.catalogId || '')) add({ code: 'no_catalog', level: 'block', message: 'Commerce Manager ka Catalog ID daalo' });
+    if (!/^\d+$/.test(draft.productSetId || '')) add({ code: 'no_product_set', level: 'block', message: 'Product set ID daalo (catalog ke andar)' });
+  }
+  if (goal.needsInstagram && !context.adAccount?.instagram_id) add({ code: 'no_instagram', level: 'block', message: 'Instagram account ad account se juda nahi hai', fix: 'Settings mein Instagram jodo' });
+  if (goal.needsCrmSignal) add({ code: 'crm_signal', level: 'info', message: 'Conversion leads tabhi kaam karega jab CRM se lead stage Meta ko wapas jaaye (Conversions API on rakho)' });
+  if (goal.verify) add({ code: 'verify_template', level: 'warn', message: 'Ye naya Meta setup hai — pehli baar sandbox pe test karke chalao' });
   if (!context.adAccount?.page_id) add({ code: 'no_page', level: 'block', message: 'Facebook Page select nahi hua' });
 
   const blocking = checks.some((c) => c.level === 'block');
   return {
     draft,
     template: { key: template.key, label: template.label, specialAdCategories: template.specialAdCategories },
-    meta: { objective: goal.objective, optimizationGoal: goal.optimizationGoal, destinationType: goal.destinationType },
+    meta: { objective: goal.objective, optimizationGoal: goal.optimizationGoal, destinationType: goal.destinationType, group: goal.group, result: goal.result },
     checks,
     blocking,
     estimate: { dailyBudget: draft.dailyBudget, monthlyBudget: monthly, reach: reach || null },

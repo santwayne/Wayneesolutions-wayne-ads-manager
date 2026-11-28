@@ -120,11 +120,11 @@ export async function createOnMeta(orgId, draftId, actor) {
     created.adsetId = s.id; created.targeting = targeting; await save();
   }
   created.ads = created.ads || [];
-  const plan = planAds(d);
+  const plan = planAds(d, goal);
   for (let i = created.ads.length; i < plan.length; i++) {
     const p = plan[i];
     const cr = await g.post(`${adAccount.meta_account_id}/adcreatives`, buildCreative(d, goal, {
-      media: p.media, primaryText: p.primaryText, headline: p.headline, pageId: adAccount.page_id,
+      media: p.media || {}, primaryText: p.primaryText, headline: p.headline, pageId: adAccount.page_id,
       instagramId: adAccount.instagram_id, leadFormId: created.leadFormId, phone: d.phone,
     }));
     const ad = await g.post(`${adAccount.meta_account_id}/ads`, { name: `Wayne ad ${i + 1}`, adset_id: created.adsetId, creative: { creative_id: cr.id }, status: 'PAUSED' });
@@ -150,7 +150,7 @@ export async function createOnMeta(orgId, draftId, actor) {
       const cr = await c.query(
         `INSERT INTO creatives (org_id, ad_account_id, meta_creative_id, type, primary_text, headline, cta, asset_url, image_hash, video_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (meta_creative_id) DO UPDATE SET primary_text = EXCLUDED.primary_text RETURNING id`,
-        [orgId, adAccount.id, a.creativeId, a.media.type, a.primaryText, a.headline, goal.cta, a.media.url || null, a.media.imageHash || null, a.media.videoId || null],
+        [orgId, adAccount.id, a.creativeId, a.media?.type || goal.creative, a.primaryText, a.headline, goal.cta, a.media?.url || null, a.media?.imageHash || null, a.media?.videoId || null],
       );
       await c.query(
         `INSERT INTO ads (org_id, adset_id, creative_id, meta_id, name, status, created_by_wizard) VALUES ($1,$2,$3,$4,$5,'PAUSED',true)

@@ -113,7 +113,7 @@ export function buildMcpServer() {
     description: 'Creates a campaign draft in Wayne Ads Manager from a goal, location, daily budget and offer, using the sector template and policy-checked ad text. Nothing is sent to Meta: photos or videos are added in the app, where the campaign is created paused. Returns the draft settings, ad text, a link to the draft and a checklist of anything missing.',
     inputSchema: {
       orgId, adAccountId: z.number().int(),
-      goal: z.enum(Object.keys(GOALS)).describe('lead_form | whatsapp | call | website | store_visit'),
+      goal: z.enum(Object.keys(GOALS)).describe('Campaign template key. Main ones: lead_form, whatsapp, call, website, store_visit. All Meta setups (awareness aw_*, traffic tr_*, engagement en_*, leads ld_*, app ap_*, sales sl_*) are listed by the app at GET /api/wizard/templates. Templates that need an app, post, event or catalog id are finished in the app.'),
       sector: z.enum(Object.keys(TEMPLATES)).optional(),
       latitude: z.number(), longitude: z.number(), radiusKm: z.number().min(1).max(80).optional(),
       dailyBudget: z.number().positive().describe('INR per day'),
