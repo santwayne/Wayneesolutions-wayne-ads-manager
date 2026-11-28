@@ -12,7 +12,9 @@ export default function Layout() {
     <div className="shell">
       <aside className="side">
         <div className="logo">Wayne Ads</div>
-        <NavLink to="/" end>Saare clients</NavLink>
+        {/* Client list only for Wayne team; a client's panel shows just their own business. */}
+        {me?.isAgency && <NavLink to="/" end>Saare clients</NavLink>}
+        {me && !me.isAgency && me.orgs.filter((o) => o.type === 'business').length > 1 && <NavLink to="/" end>Business badlo</NavLink>}
         {org && (
           <>
             <div className="org">{org.name}</div>

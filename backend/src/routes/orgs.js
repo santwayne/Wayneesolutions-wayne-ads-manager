@@ -6,7 +6,7 @@ import { forbidden, conflict, badRequest } from '../lib/errors.js';
 import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { issueUserToken, resetLink, deliverLink } from './password.js';
-import { requireOrg } from '../lib/auth.js';
+import { requireOrg, requireAgency, isAgencyMember } from '../lib/auth.js';
 import { ah, parse, actorOf } from './util.js';
 import { logAction } from '../actions/service.js';
 import { agencyOverview, totals, objectPerformance } from '../reports/metrics.js';
@@ -16,7 +16,8 @@ import { enqueue } from '../jobs/queues.js';
 export const orgs = Router();
 
 // Agency dashboard: all clients, health score, who needs attention today.
-orgs.get('/agency/overview', ah(async (req, res) => res.json({ clients: await agencyOverview(req.user.id) })));
+// Wayne team (agency members) only: a client never sees the list of other clients.
+orgs.get('/agency/overview', requireAgency, ah(async (req, res) => res.json({ clients: await agencyOverview(req.user.id) })));
 
 // Create a client business under an agency (agency owner/manager only).
 orgs.post('/orgs/:orgId/clients', requireOrg('manager'), ah(async (req, res) => {
@@ -54,6 +55,8 @@ orgs.patch('/orgs/:orgId/settings', requireOrg('owner'), ah(async (req, res) => 
   }), req.body);
   const map = { autoMode: 'auto_mode', autoDailyActionLimit: 'auto_daily_action_limit', dailyBudgetCap: 'daily_budget_cap', aiCallEnabled: 'ai_call_enabled', whatsappNumber: 'whatsapp_number', privacyPolicyUrl: 'privacy_policy_url', serviceFeeMonthly: 'service_fee_monthly' };
   const { rows: [before] } = await query('SELECT * FROM orgs WHERE id = $1', [req.org.id]);
+  // The service fee is what Wayne charges the client: only Wayne team can change it.
+  if (b.serviceFeeMonthly !== undefined && !(await isAgencyMember(req.user.id))) throw forbidden('Service fee sirf Wayne team badal sakti hai');
   const keys = Object.keys(b);
   if (!keys.length) return res.json(before);
   const sets = keys.map((k, i) => `${map[k]} = $${i + 2}`).join(', ');

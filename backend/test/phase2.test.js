@@ -135,6 +135,14 @@ test('Self-serve signup creates business + owner', async () => {
   assert.equal(r.status, 201);
   const me = await fetch(`${base}/api/auth/me`, { headers: { authorization: `Bearer ${r.body.token}` } }).then((x) => x.json());
   assert.equal(me.orgs[0].role, 'owner');
+  // A client is not Wayne team: no client list, no service fee changes.
+  assert.equal(me.isAgency, false);
+  const asClient = { authorization: `Bearer ${r.body.token}`, 'content-type': 'application/json' };
+  assert.equal((await fetch(`${base}/api/agency/overview`, { headers: asClient })).status, 403);
+  assert.equal((await fetch(`${base}/api/orgs/${r.body.orgId}/settings`, { method: 'PATCH', headers: asClient, body: JSON.stringify({ serviceFeeMonthly: 0 }) })).status, 403);
+  assert.equal((await fetch(`${base}/api/orgs/${r.body.orgId}/settings`, { method: 'PATCH', headers: asClient, body: JSON.stringify({ aiCallEnabled: false }) })).status, 200);
+  const staffMe = await api('GET', '/api/auth/me');
+  assert.equal(staffMe.body.isAgency, true);
   const dup = await api('POST', '/api/auth/signup', { businessName: 'X', name: 'X', email: 'gill@salon.test', password: 'password123', whatsappNumber: '919811111111' }, { auth: false });
   assert.equal(dup.status, 400);
 });
